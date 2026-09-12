@@ -8,7 +8,7 @@ Requires Node 22.13 or newer. Run `npm ci`, then `npm run dev`. Production build
 
 ## Analysis
 
-Drop a PDF, SEC HTML, or TXT annual filing (30 MB maximum). Files remain in browser memory and are not uploaded or persisted. PDF text extraction uses bundled PDF.js. Scanned PDFs require OCR before uploading.
+Drop a PDF annual filing (30 MB maximum). Files remain in browser memory and are not uploaded or persisted. PDF text extraction uses bundled PDF.js. Scanned PDFs require OCR before uploading.
 
 HTML inline XBRL extraction selects consolidated USD annual facts for the document reporting date; dimensional and quarterly contexts are excluded. Supported fields: revenue, net income, operating cash flow, cash, noncurrent debt, and diluted weighted-average shares. Amounts and shares are normalized to millions. Conflicting facts stay blank. Text tables produce explicitly unverified candidates only when consolidated headings, currency, units, and multiple columns are present. Unrecognized facts remain editable. Custom taxonomy tags and unusual layouts can require manual entry.
 

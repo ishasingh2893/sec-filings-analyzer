@@ -1,11 +1,12 @@
 'use client';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ArrowUpRight, Upload, FileText, ArrowRight, Check, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { analyze, readFile, demo, type Report, type MetricKey, labels, valueOf, valuation } from '@/lib/filing';
 const money = (n:number|null) => n === null ? '—' : '$'+n.toLocaleString('en-US',{maximumFractionDigits:1})+'m';
 export default function Home(){
+ useEffect(()=>{const input=document.querySelector('input[type="file"]') as HTMLInputElement|null;if(input){input.accept='application/pdf,.pdf';input.setAttribute('aria-label','Choose PDF 10-K file')}const copy=document.querySelector('.upload-copy p');if(copy)copy.textContent='PDF only · up to 30 MB · files stay in your browser';},[]);
  const [report,setReport]=useState<Report|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[drag,setDrag]=useState(false),[status,setStatus]=useState(''),[reviewed,setReviewed]=useState(false);
  const [low,setLow]=useState('15'),[high,setHigh]=useState('25'),[price,setPrice]=useState('');
  const input=useRef<HTMLInputElement>(null);
