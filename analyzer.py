@@ -1,5 +1,6 @@
 """Focused, rule-based PDF filing extraction for Lambda."""
 import re
+from urllib.request import Request, urlopen
 from pypdf import PdfReader
 
 LABELS = {
@@ -28,3 +29,15 @@ def analyze_pdf(path):
             sections[name] = re.sub(r"\s+", " ", found.group(1)).strip()[:1200]
     return {"metrics": metrics, "sections": sections, "method": "PDF text extraction; figures require review"}
 
+
+def analyze_html(url):
+    request = Request(url, headers={"User-Agent": "Filing Notes research tool contact@example.com"})
+    with urlopen(request, timeout=20) as response:
+        html = response.read(12 * 1024 * 1024).decode("utf-8", errors="replace")
+    text = re.sub(r"<script[\s\S]*?</script>|<style[\s\S]*?</style>", " ", html, flags=re.I)
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = re.sub(r"&nbsp;|&#160;", " ", text, flags=re.I)
+    text = re.sub(r"\s+", " ", text)
+    if not re.search(r"10[-– ]?q\b|10[-– ]?k\b|annual report", text, re.I):
+        raise ValueError("The URL does not appear to be an SEC 10-Q or 10-K filing.")
+    return {"metrics": {}, "sections": {"document": text[:4000]}, "method": "SEC HTML text extraction; figures require review"}
