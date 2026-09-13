@@ -42,6 +42,9 @@ def analyze_html(url):
         raise ValueError("The URL does not appear to be an SEC 10-Q or 10-K filing.")
     company_match = re.search(r'name=[\"\'](?:dei:)?EntityRegistrantName[\"\'][^>]*>(.*?)</', html, re.I | re.S)
     company = re.sub(r'<[^>]+>', '', company_match.group(1)).strip() if company_match else ''
+    if not company:
+        title_match = re.search(r'<title[^>]*>(.*?)</title>', html, re.I | re.S)
+        company = re.sub(r'\s+\(Form:.*$', '', re.sub(r'<[^>]+>', '', title_match.group(1))).strip() if title_match else ''
     period_match = re.search(r'name=[\"\'](?:dei:)?DocumentPeriodEndDate[\"\'][^>]*>(.*?)</', html, re.I | re.S)
     period = re.sub(r'<[^>]+>', '', period_match.group(1)).strip() if period_match else ''
     metric_tags = {'revenue':['Revenues','RevenueFromContractWithCustomerExcludingAssessedTax','SalesRevenueNet'],'net_income':['NetIncomeLoss','ProfitLoss'],'operating_cash_flow':['NetCashProvidedByUsedInOperatingActivities'],'cash':['CashAndCashEquivalentsAtCarryingValue'],'long_term_debt':['LongTermDebtNoncurrent','LongTermDebt'],'shares':['WeightedAverageNumberOfDilutedSharesOutstanding']}
@@ -49,7 +52,7 @@ def analyze_html(url):
     for key, tags in metric_tags.items():
         found = None
         for tag in tags:
-            m = re.search(rf'name=[\"\'](?:us-gaap:)?{tag}[\"\'][^>]*>([\(\)-]?\d[\d,]*(?:\.\d+)?)</', html, re.I)
+            m = re.search(rf'<[^>]*name=[\"\'](?:us-gaap:)?{tag}[\"\'][^>]*>(?:<[^>]+>)*([\(\)-]?\d[\d,]*(?:\.\d+)?)', html, re.I)
             if m:
                 value = float(m.group(1).replace(',', '').replace('(', '-'))
                 scale_match = re.search(rf'name=[\"\'](?:us-gaap:)?{tag}[\"\'][^>]*scale=[\"\'](-?\d+)[\"\']', html, re.I)
