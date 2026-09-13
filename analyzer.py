@@ -40,4 +40,4 @@ def analyze_html(url):
     text = re.sub(r"\s+", " ", text)
     if not re.search(r"10[-– ]?q\b|10[-– ]?k\b|annual report", text, re.I):
         raise ValueError("The URL does not appear to be an SEC 10-Q or 10-K filing.")
-    return {"metrics": {}, "sections": {"document": text[:4000]}, "method": "SEC HTML text extraction; figures require review"}
+    company=(re.search(r"(?:EntityRegistrantName|Company Name)[^>]{0,200}>([^<]+)<", html, re.I) or [None, ""])[1].strip(); period=(re.search(r"(?:DocumentPeriodEndDate|Document Period End Date)[^>]{0,200}>([^<]+)<", html, re.I) or [None, ""])[1].strip(); return {"company": company, "period": period, "metrics": {}, "sections": {"document": text[:4000]}, "method": "SEC HTML text extraction; figures require review"}
