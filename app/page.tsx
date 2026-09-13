@@ -4,13 +4,14 @@ import { ArrowUpRight, Upload, FileText, ArrowRight, Check, Loader2 } from 'luci
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { analyze, readFile, demo, type Report, type MetricKey, labels, valueOf, valuation } from '@/lib/filing';
+const LAMBDA_URL='https://zolnsjttd5k7ny7d6yhlf7v6cq0tcpfi.lambda-url.us-east-2.on.aws/';
 const money = (n:number|null) => n === null ? '—' : '$'+n.toLocaleString('en-US',{maximumFractionDigits:1})+'m';
 export default function Home(){
  useEffect(()=>{const input=document.querySelector('input[type="file"]') as HTMLInputElement|null;if(input){input.accept='application/pdf,.pdf';input.setAttribute('aria-label','Choose PDF 10-K file')}const copy=document.querySelector('.upload-copy p');if(copy)copy.textContent='PDF only · up to 30 MB · files stay in your browser';},[]);
  const [report,setReport]=useState<Report|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[drag,setDrag]=useState(false),[status,setStatus]=useState(''),[reviewed,setReviewed]=useState(false);
  const [low,setLow]=useState('15'),[high,setHigh]=useState('25'),[price,setPrice]=useState('');
  const input=useRef<HTMLInputElement>(null);
- async function upload(file?:File){if(!file||busy)return;setBusy(true);setError('');setStatus('Reading your filing…');try{const content=await readFile(file,setStatus);const next=analyze(content,file.name);setReport(next);setReviewed(false);setPrice('');setStatus('Analysis ready. Review the extracted figures below.');}catch(e){setError(e instanceof Error?e.message:'Unable to read this filing.');setStatus('');}finally{setBusy(false);}}
+ async function upload(file?:File){if(!file||busy)return;setBusy(true);setError('');setStatus('Reading your filing…');try{const content=await readFile(file,setStatus);const next=analyze(content,file.name);const remote=await fetch(LAMBDA_URL,{method:'POST',headers:{'content-type':'application/pdf'},body:await file.arrayBuffer()});if(remote.ok){const data=await remote.json();next.notes=[...next.notes,'Python Lambda analysis completed.'];next.method=data.method||next.method;}setReport(next);setReviewed(false);setPrice('');setStatus('Analysis ready. Review the extracted figures below.');}catch(e){setError(e instanceof Error?e.message:'Unable to read this filing.');setStatus('');}finally{setBusy(false);}}
  function update(key:MetricKey,v:string){if(!report)return;setReport({...report,metrics:{...report.metrics,[key]:{...report.metrics[key],value:v===''?null:Number(v),manual:true}}});setReviewed(false);}
  const net=report?valueOf(report,'income'):null,rev=report?valueOf(report,'revenue'):null,shares=report?valueOf(report,'shares'):null;
  const range=valuation(net,shares,low,high), margin=net!==null&&rev!==null&&rev>0?net/rev*100:null;
