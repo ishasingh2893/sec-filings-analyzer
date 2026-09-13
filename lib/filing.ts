@@ -11,7 +11,10 @@ export async function readFile(file:File,progress:(s:string)=>void):Promise<Cont
  if(file.size>30*1024*1024)throw Error('This file exceeds 30 MB. Choose a smaller filing.');
  const ext=file.name.split('.').pop()?.toLowerCase();if(ext!=='pdf'||(file.type&&file.type!=='application/pdf'))throw Error('Choose a PDF 10-K file.');
  if(ext==='pdf'){
- const pdfjs=await import('pdfjs-dist');pdfjs.GlobalWorkerOptions.workerSrc=new URL('pdfjs-dist/build/pdf.worker.min.mjs',import.meta.url).toString();
+ const pdfjs=await import('pdfjs-dist');
+ // Resolve the worker from the deployed site origin. Bundler-generated file:// URLs
+ // cannot be fetched by browsers in production.
+ pdfjs.GlobalWorkerOptions.workerSrc='/pdf.worker.min.mjs';
  const task=pdfjs.getDocument({data:await file.arrayBuffer()});let pdf;try{pdf=await task.promise;const pages:string[]=[];if(pdf.numPages>1200)throw Error('This PDF has too many pages. Choose the annual report without exhibits.');for(let i=1;i<=pdf.numPages;i++){progress('Reading page '+i+' of '+pdf.numPages+'…');const page=await pdf.getPage(i);const content=await page.getTextContent();let lastY:number|null=null;let line='';const lines:string[]=[];for(const item of content.items){if(!('str' in item))continue;const y=item.transform[5];if(lastY!==null&&Math.abs(lastY-y)>3){lines.push(line);line=''}line+=' '+item.str;lastY=y;if(item.hasEOL){lines.push(line);line='';lastY=null}}if(line)lines.push(line);pages.push('[Page '+i+']\n'+lines.join('\n'));page.cleanup()}return {text:pages.join('\n')};}catch(e){if(e instanceof Error&&e.name==='PasswordException')throw Error('This PDF is password protected. Upload an unlocked copy.');throw e;}finally{await task.destroy();}
  }
  const raw=await file.text();if(ext==='html'||ext==='htm'){const doc=new DOMParser().parseFromString(raw,'text/html');doc.querySelectorAll('script,style,iframe,object,link,img').forEach(e=>e.remove());const html=doc.documentElement.outerHTML;doc.querySelectorAll('tr,p,div,br,h1,h2,h3').forEach(e=>e.append('\n'));descendants(doc,'hidden').forEach(e=>e.remove());return {text:doc.body.textContent||'',html};}return {text:raw};
