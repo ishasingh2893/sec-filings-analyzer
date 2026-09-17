@@ -1,0 +1,173 @@
+"""Small extractive summarizer for 10-K Business sections."""
+import html
+import math
+import re
+from collections import Counter
+
+STOPWORDS = {
+    "a",
+    "an",
+    "and",
+    "are",
+    "as",
+    "at",
+    "be",
+    "by",
+    "for",
+    "from",
+    "has",
+    "in",
+    "into",
+    "is",
+    "it",
+    "its",
+    "of",
+    "on",
+    "or",
+    "our",
+    "that",
+    "the",
+    "their",
+    "these",
+    "this",
+    "to",
+    "was",
+    "we",
+    "with",
+}
+
+BOILERPLATE = (
+    "fiscal year",
+    "annual report",
+    "form 10-k",
+    "forward-looking",
+    "table of contents",
+)
+
+RISK_BOILERPLATE = (
+    "following summarizes",
+    "accurately predict",
+    "statements in this section",
+    "not representations as to whether",
+    "not representations as to",
+    "additional risks",
+    "not the only risks",
+)
+
+
+def summarize_business_section(text, sentence_count=4, max_chars=900):
+    return _summarize_section(text, sentence_count, max_chars, BOILERPLATE, 12)
+
+
+def summarize_risk_factors_section(text, sentence_count=4, max_chars=1000):
+    return _summarize_section(text, sentence_count, max_chars, BOILERPLATE + RISK_BOILERPLATE, 1_000_000, 0.38)
+
+
+def _summarize_section(text, sentence_count, max_chars, boilerplate, position_half_life, diversity_threshold=None):
+    sentences = _candidate_sentences(text, boilerplate)
+    if not sentences:
+        return ""
+
+    ranked = _textrank(sentences, position_half_life)
+    vectors = [_sentence_vector(sentence) for sentence in sentences]
+    selected = _select_sentences(ranked, vectors, sentence_count, diversity_threshold)
+    selected = sorted(selected, key=lambda item: item[0])
+    summary = ""
+    for _, sentence in selected:
+        candidate = f"{summary} {sentence}".strip()
+        if summary and len(candidate) > max_chars:
+            break
+        summary = candidate
+    return summary
+
+
+def _candidate_sentences(text, boilerplate):
+    cleaned = _clean_text(text)
+    sentences = re.split(r"(?<=[.!?])\s+", cleaned)
+    return [sentence for sentence in sentences if _is_useful_sentence(sentence, boilerplate)]
+
+
+def _clean_text(text):
+    text = html.unescape(text)
+    text = re.sub(r"\b(Company Background|Products|Services|Markets|Competition)\b", " ", text)
+    text = re.sub(r"\b[A-Z][A-Za-z,& /-]+ Risks\s+(?=(?:The|If|Because|Changes|Adverse|Failure|The Company)\b)", " ", text)
+    text = re.sub(r"\b([A-Za-z][A-Za-z0-9+]+)\s+\1\s+([®™]\s+)?is\b", r"\1 \2is", text)
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
+
+
+def _is_useful_sentence(sentence, boilerplate):
+    words = _words(sentence)
+    if len(words) < 8 or len(sentence) > 350:
+        return False
+    if not re.match(r"[A-Z0-9\"'“‘(]", sentence):
+        return False
+    lower = sentence.lower()
+    return not any(phrase in lower for phrase in boilerplate)
+
+
+def _textrank(sentences, position_half_life):
+    vectors = [_sentence_vector(sentence) for sentence in sentences]
+    centroid = _centroid(vectors)
+    count = len(sentences)
+    scores = [1.0] * count
+
+    for _ in range(20):
+        next_scores = [0.15] * count
+        for i in range(count):
+            links = [(j, _cosine(vectors[i], vectors[j])) for j in range(count) if i != j]
+            total_weight = sum(weight for _, weight in links)
+            if total_weight == 0:
+                continue
+            for j, weight in links:
+                next_scores[j] += 0.85 * scores[i] * weight / total_weight
+        scores = next_scores
+
+    ranked = sorted(
+        enumerate(sentences),
+        key=lambda item: (
+            (scores[item[0]] + _cosine(vectors[item[0]], centroid)) * _position_weight(item[0], position_half_life),
+            -item[0],
+        ),
+        reverse=True,
+    )
+    return ranked
+
+
+def _sentence_vector(sentence):
+    return Counter(word for word in _words(sentence) if word not in STOPWORDS)
+
+
+def _words(sentence):
+    return re.findall(r"[a-z][a-z0-9-]{2,}", sentence.lower())
+
+
+def _cosine(left, right):
+    common = set(left) & set(right)
+    numerator = sum(left[word] * right[word] for word in common)
+    left_norm = math.sqrt(sum(value * value for value in left.values()))
+    right_norm = math.sqrt(sum(value * value for value in right.values()))
+    return numerator / (left_norm * right_norm) if left_norm and right_norm else 0
+
+
+def _centroid(vectors):
+    centroid = Counter()
+    for vector in vectors:
+        centroid.update(vector)
+    return centroid
+
+
+def _select_sentences(ranked, vectors, sentence_count, diversity_threshold):
+    if diversity_threshold is None:
+        return ranked[:sentence_count]
+    selected = []
+    for index, sentence in ranked:
+        if all(_cosine(vectors[index], vectors[other_index]) < diversity_threshold for other_index, _ in selected):
+            selected.append((index, sentence))
+        if len(selected) == sentence_count:
+            break
+    return selected or ranked[:sentence_count]
+
+
+def _position_weight(index, half_life):
+    return 0.5 ** (index / half_life)

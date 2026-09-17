@@ -1,9 +1,11 @@
-"""AWS Lambda entry point for small PDF filing analyses."""
+"""AWS Lambda entry point for small SEC HTML filing analyses."""
 import json
 from analyzer import analyze_html
 
 
 def handler(event, context):
+    if event.get("requestContext", {}).get("http", {}).get("method") == "OPTIONS":
+        return response(204, {})
     if event.get("requestContext", {}).get("http", {}).get("method", "POST") != "POST":
         return response(405, {"error": "Only POST is supported."})
     try:
@@ -17,4 +19,13 @@ def handler(event, context):
 
 
 def response(status, body):
-    return {"statusCode": status, "headers": {"content-type": "application/json"}, "body": json.dumps(body)}
+    return {
+        "statusCode": status,
+        "headers": {
+            "access-control-allow-origin": "*",
+            "access-control-allow-methods": "POST, OPTIONS",
+            "access-control-allow-headers": "content-type",
+            "content-type": "application/json",
+        },
+        "body": "" if status == 204 else json.dumps(body),
+    }
