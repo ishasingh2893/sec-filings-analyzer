@@ -9,3 +9,5 @@
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 
 .url-form{display:flex;align-items:center;gap:16px;border:1px dashed #799281;background:#ebeee2;padding:30px 32px;border-radius:6px;margin-bottom:10px}.url-form input{flex:1;height:46px;background:#fffdf8;border:1px solid #cad3bd;border-radius:4px;padding:0 16px;color:var(--ink)}.url-form button{height:46px;background:var(--green);color:var(--paper);border:0;border-radius:4px;padding:0 24px;font-weight:600}.url-form button:disabled{opacity:.55;cursor:not-allowed}
+.summary>h2{font-size:36px;letter-spacing:-.025em}
+.risk-list{margin:12px 0 0;padding-left:1.4rem;color:#46554b;line-height:1.75;list-style:disc outside}.risk-list li{display:list-item;margin-bottom:10px;padding-left:4px}.risk-list li::marker{color:var(--green);font-size:1.15em}

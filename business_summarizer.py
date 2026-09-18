@@ -56,10 +56,13 @@ RISK_BOILERPLATE = (
 
 
 def summarize_business_section(text, sentence_count=4, max_chars=900):
-    return _summarize_section(text, sentence_count, max_chars, BOILERPLATE, 12)
+    return _summarize_section(text, sentence_count, max_chars, BOILERPLATE, 8)
 
 
 def summarize_risk_factors_section(text, sentence_count=4, max_chars=1000):
+    block_summaries = _summarize_risk_blocks(text, sentence_count)
+    if block_summaries:
+        return _join_with_limit(block_summaries, max_chars)
     return _summarize_section(text, sentence_count, max_chars, BOILERPLATE + RISK_BOILERPLATE, 1_000_000, 0.38)
 
 
@@ -81,6 +84,51 @@ def _summarize_section(text, sentence_count, max_chars, boilerplate, position_ha
     return summary
 
 
+def _summarize_risk_blocks(text, sentence_count):
+    blocks = _risk_blocks(text)
+    summaries = []
+    for block in blocks:
+        summary = _first_useful_sentence(block, BOILERPLATE + RISK_BOILERPLATE)
+        if summary:
+            summaries.append(summary)
+        if len(summaries) == sentence_count:
+            break
+    return summaries
+
+
+def _first_useful_sentence(text, boilerplate):
+    sentences = _candidate_sentences(text, boilerplate)
+    return sentences[0] if sentences else ""
+
+
+def _risk_blocks(text):
+    cleaned = _clean_text_for_risk_blocks(text)
+    headings = list(
+        re.finditer(
+            r"(?:^|(?<=[.!?])\s+|\|\s+\d+\s+|\s+\d+\s+)([A-Z][A-Za-z,& /-]{3,80} Risks)\s+(?=[A-Z])",
+            cleaned,
+        )
+    )
+    blocks = []
+    for index, heading in enumerate(headings):
+        start = heading.end()
+        end = headings[index + 1].start() if index + 1 < len(headings) else len(cleaned)
+        block = cleaned[start:end].strip()
+        if block:
+            blocks.append(block)
+    return blocks
+
+
+def _join_with_limit(sentences, max_chars):
+    summary = ""
+    for sentence in sentences:
+        candidate = f"{summary} {sentence}".strip()
+        if summary and len(candidate) > max_chars:
+            break
+        summary = candidate
+    return summary
+
+
 def _candidate_sentences(text, boilerplate):
     cleaned = _clean_text(text)
     sentences = re.split(r"(?<=[.!?])\s+", cleaned)
@@ -89,11 +137,23 @@ def _candidate_sentences(text, boilerplate):
 
 def _clean_text(text):
     text = html.unescape(text)
+    text = _remove_page_markers(text)
     text = re.sub(r"\b(Company Background|Products|Services|Markets|Competition)\b", " ", text)
     text = re.sub(r"\b[A-Z][A-Za-z,& /-]+ Risks\s+(?=(?:The|If|Because|Changes|Adverse|Failure|The Company)\b)", " ", text)
     text = re.sub(r"\b([A-Za-z][A-Za-z0-9+]+)\s+\1\s+([®™]\s+)?is\b", r"\1 \2is", text)
     text = re.sub(r"\s+", " ", text)
     return text.strip()
+
+
+def _clean_text_for_risk_blocks(text):
+    text = html.unescape(text)
+    text = _remove_page_markers(text)
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
+
+
+def _remove_page_markers(text):
+    return re.sub(r"\b[A-Z][A-Za-z .,&'-]{1,80}\s+\|\s+\d{4}\s+Form\s+10-K\s+\|\s+\d+\b", " ", text)
 
 
 def _is_useful_sentence(sentence, boilerplate):
