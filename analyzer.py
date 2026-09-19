@@ -1,4 +1,6 @@
 """Focused, rule-based SEC HTML filing extraction for Lambda."""
+import json
+import re
 from socket import timeout as SocketTimeout
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -47,6 +49,7 @@ METRIC_TAGS = {
 
 PER_SHARE_METRICS = {"diluted_eps"}
 FETCH_TIMEOUT_SECONDS = 30
+ISSUER_MIRROR_TIMEOUT_SECONDS = 8
 
 TEXT_METRIC_LABELS = {
     "revenue": ("Total net sales",),
@@ -71,7 +74,7 @@ def extract_company(html):
     return company or remove_form_suffix(extract_title(html))
 
 
-def fetch_html(url):
+def fetch_html(url, timeout_seconds=FETCH_TIMEOUT_SECONDS):
     request = Request(
         url,
         headers={
@@ -82,7 +85,7 @@ def fetch_html(url):
         },
     )
     try:
-        with urlopen(request, timeout=FETCH_TIMEOUT_SECONDS) as response:
+        with urlopen(request, timeout=timeout_seconds) as response:
             return response.read(12 * 1024 * 1024).decode("utf-8", errors="replace")
     except (SocketTimeout, TimeoutError) as exc:
         raise TimeoutError(
@@ -92,6 +95,46 @@ def fetch_html(url):
         raise ValueError(f"Unable to fetch filing HTML: HTTP {exc.code}.") from exc
     except URLError as exc:
         raise ValueError(f"Unable to fetch filing HTML: {exc.reason}.") from exc
+
+
+def fetch_json(url):
+    request = Request(
+        url,
+        headers={
+            "User-Agent": "sec-filings-analyzer/1.0 ishasingh2893@gmail.com",
+            "Accept": "application/json",
+        },
+    )
+    with urlopen(request, timeout=FETCH_TIMEOUT_SECONDS) as response:
+        return json.load(response)
+
+
+def latest_sec_10k_url_for_cik(cik):
+    padded_cik = str(int(cik)).zfill(10)
+    submissions = fetch_json(f"https://data.sec.gov/submissions/CIK{padded_cik}.json")
+    recent = submissions.get("filings", {}).get("recent", {})
+    for index, form in enumerate(recent.get("form", [])):
+        if form == "10-K":
+            accession = recent["accessionNumber"][index].replace("-", "")
+            document = recent["primaryDocument"][index]
+            archive_cik = str(int(cik))
+            return f"https://www.sec.gov/Archives/edgar/data/{archive_cik}/{accession}/{document}"
+    return ""
+
+
+def fallback_sec_url_for_input_url(url):
+    cik = extract_cik_from_url(url)
+    if not cik:
+        return ""
+    return latest_sec_10k_url_for_cik(cik)
+
+
+def extract_cik_from_url(url):
+    for pattern in (r"/data/(\d{1,10})/", r"CIK[-_]?0*(\d{1,10})", r"cik=(\d{1,10})"):
+        match = re.search(pattern, url, re.I)
+        if match:
+            return match.group(1)
+    return ""
 
 
 def extract_period(html, text):
@@ -165,7 +208,14 @@ def extract_sections(text):
 
 
 def analyze_html(url):
-    html = fetch_html(url)
+    try:
+        initial_timeout = FETCH_TIMEOUT_SECONDS if "sec.gov/Archives/" in url else ISSUER_MIRROR_TIMEOUT_SECONDS
+        html = fetch_html(url, initial_timeout)
+    except (TimeoutError, ValueError):
+        fallback_url = fallback_sec_url_for_input_url(url)
+        if not fallback_url:
+            raise
+        html = fetch_html(fallback_url)
     text = html_to_text(html)
     if not looks_like_sec_filing(text):
         raise ValueError("The URL does not appear to be an SEC 10-Q or 10-K filing.")

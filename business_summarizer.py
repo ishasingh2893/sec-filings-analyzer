@@ -54,6 +54,8 @@ RISK_BOILERPLATE = (
     "not the only risks",
 )
 
+MAX_TEXTRANK_SENTENCES = 120
+
 
 def summarize_business_section(text, sentence_count=4, max_chars=900):
     return _summarize_section(text, sentence_count, max_chars, BOILERPLATE, 8)
@@ -67,7 +69,7 @@ def summarize_risk_factors_section(text, sentence_count=4, max_chars=1000):
 
 
 def _summarize_section(text, sentence_count, max_chars, boilerplate, position_half_life, diversity_threshold=None):
-    sentences = _candidate_sentences(text, boilerplate)
+    sentences = _candidate_sentences(text, boilerplate)[:MAX_TEXTRANK_SENTENCES]
     if not sentences:
         return ""
 
