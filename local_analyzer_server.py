@@ -1,6 +1,6 @@
 """Local CORS-enabled HTTP server for testing the analyzer from the frontend."""
 import json
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from analyzer import analyze_html
 
@@ -38,6 +38,6 @@ class AnalyzerHandler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    server = HTTPServer(("localhost", 8000), AnalyzerHandler)
+    server = ThreadingHTTPServer(("localhost", 8000), AnalyzerHandler)
     print("Local analyzer server running at http://localhost:8000/")
     server.serve_forever()
