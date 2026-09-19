@@ -4,6 +4,7 @@ import re
 
 __all__ = [
     "extract_business_section",
+    "extract_cover_page_company_name",
     "extract_first_number_after_label",
     "extract_first_number_between",
     "extract_inline_xbrl_fact",
@@ -131,16 +132,33 @@ def extract_business_section(text):
 
 
 def extract_risk_factors_section(text):
-    # Matches Item 1A. Risk Factors headings and captures text until Item 1B or the next numbered item.
-    starts = re.finditer(r"\bItem\s+1A[.\s:–-]+Risk Factors\b", text, re.I)
+    # Matches Item 1A headings, plus standalone "Risk Factors" headings used by
+    # annual-report exhibits, and captures text until the next major section.
+    starts = [(match, r"\bItem\s+(?:1B|2)[.\s:–-]+") for match in re.finditer(r"\bItem\s+1A[.\s:–-]+Risk Factors\b", text, re.I)]
+    starts.extend(
+        (match, r"\b(?:Controls and Procedures|Financial Statements)\b")
+        for match in re.finditer(r"\bRisk Factors\s+(?=An investment\b|The following\b|Our\b|We\b)", text, re.I)
+    )
     sections = []
-    for start in starts:
+    for start, end_pattern in starts:
         section = text[start.end() :]
-        end = re.search(r"\bItem\s+(?:1B|2)[.\s:–-]+", section, re.I)
+        end = re.search(end_pattern, section, re.I)
         if end:
             section = section[: end.start()]
-        sections.append(_collapse_whitespace(section).strip())
+        section = _collapse_whitespace(section).strip()
+        if len(section) > 1000:
+            sections.append(section)
     return max(sections, key=len) if sections else ""
+
+
+def extract_cover_page_company_name(text):
+    # Matches the registrant name that appears immediately before the SEC cover-page "Exact name" label.
+    match = re.search(
+        r"Commission File Number\s+[\w.-]+\s+(.{2,120}?)\s+\(Exact name of registrant as specified in its charter\)",
+        text,
+        re.I,
+    )
+    return _collapse_whitespace(html_lib.unescape(match.group(1))).strip() if match else ""
 
 
 def extract_inline_xbrl_text(html, namespace, tag):

@@ -1,4 +1,6 @@
 """Focused, rule-based SEC HTML filing extraction for Lambda."""
+from datetime import datetime
+from difflib import SequenceMatcher
 import json
 import re
 from socket import timeout as SocketTimeout
@@ -7,6 +9,7 @@ from urllib.request import Request, urlopen
 from business_summarizer import summarize_business_section, summarize_risk_factors_section
 from regex_helpers import (
     extract_business_section,
+    extract_cover_page_company_name,
     extract_first_number_after_label,
     extract_first_number_between,
     extract_inline_xbrl_fact,
@@ -23,12 +26,13 @@ from regex_helpers import (
 METRIC_TAGS = {
     "revenue": [
         "Revenues",
+        "RevenuesNetOfInterestExpense",
         "RevenueFromContractWithCustomerExcludingAssessedTax",
         "SalesRevenueNet",
     ],
     "cost_of_revenue": ["CostOfRevenue", "CostOfGoodsAndServicesSold", "CostOfGoodsSold"],
     "gross_profit": ["GrossProfit"],
-    "operating_expenses": ["OperatingExpenses", "CostsAndExpenses"],
+    "operating_expenses": ["OperatingExpenses", "NoninterestExpense", "CostsAndExpenses"],
     "operating_income": ["OperatingIncomeLoss"],
     "net_income": ["NetIncomeLoss", "ProfitLoss"],
     "diluted_eps": ["EarningsPerShareDiluted"],
@@ -57,7 +61,7 @@ ISSUER_MIRROR_TIMEOUT_SECONDS = 4
 SEC_COMPANY_TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
 PREFERRED_FACT_LABELS = {
     "revenue": ("Total operating revenues", "Total revenues", "Total net sales", "Net sales", "Revenue"),
-    "operating_expenses": ("Total operating expenses", "Total costs and expenses"),
+    "operating_expenses": ("Total operating expenses", "Total noninterest expenses", "Total costs and expenses"),
     "total_assets": ("Total assets",),
     "total_liabilities": ("Total liabilities",),
     "shareholders_equity": ("Total shareholders", "Total stockholders", "Total equity"),
@@ -81,9 +85,9 @@ TEXT_METRIC_LABELS = {
 }
 
 
-def extract_company(html):
+def extract_company(html, text):
     company = extract_inline_xbrl_text(html, "dei", "EntityRegistrantName")
-    return company or remove_form_suffix(extract_title(html))
+    return clean_company_name(company or extract_cover_page_company_name(text) or remove_form_suffix(extract_title(html)))
 
 
 def fetch_html(url, timeout_seconds=FETCH_TIMEOUT_SECONDS):
@@ -130,8 +134,58 @@ def latest_sec_10k_url_for_cik(cik):
             accession = recent["accessionNumber"][index].replace("-", "")
             document = recent["primaryDocument"][index]
             archive_cik = str(int(cik))
-            return f"https://www.sec.gov/Archives/edgar/data/{archive_cik}/{accession}/{document}"
+            return best_sec_html_document_url(archive_cik, accession, document)
     return ""
+
+
+def best_sec_html_document_url(cik, accession, primary_document):
+    base_url = f"https://www.sec.gov/Archives/edgar/data/{cik}/{accession}"
+    default_url = f"{base_url}/{primary_document}"
+    try:
+        index = fetch_json(f"{base_url}/index.json")
+    except Exception:
+        return default_url
+    html_documents = []
+    for item in index.get("directory", {}).get("item", []):
+        name = item.get("name", "")
+        if not name.lower().endswith((".htm", ".html")):
+            continue
+        # Some SEC filings list a small document chunk as primary_document, such as
+        # Wells Fargo's *_d2.htm cover/narrative chunk. Prefer the main large HTML
+        # filing for metrics because it carries the consolidated inline-XBRL facts.
+        if re.search(r"(^R\d+\.htm$|-index|xex|_d\d+\.htm$)", name, re.I):
+            continue
+        try:
+            size = int(item.get("size") or 0)
+        except ValueError:
+            size = 0
+        html_documents.append((size, name))
+    if not html_documents:
+        return default_url
+    return f"{base_url}/{max(html_documents)[1]}"
+
+
+def sec_accession_base_url(url):
+    match = re.search(r"^(https://www\.sec\.gov/Archives/edgar/data/\d+/\d+)/[^/]+$", url, re.I)
+    return match.group(1) if match else ""
+
+
+def narrative_companion_urls(url):
+    base_url = sec_accession_base_url(url)
+    if not base_url:
+        return []
+    try:
+        index = fetch_json(f"{base_url}/index.json")
+    except Exception:
+        return []
+    candidates = []
+    for item in index.get("directory", {}).get("item", []):
+        name = item.get("name", "")
+        # Companion *_dN.htm files can contain Item 1 / Item 1A narrative text even
+        # when the main HTML is the better source for financial statements.
+        if re.search(r"_d\d+\.htm$", name, re.I):
+            candidates.append(name)
+    return [f"{base_url}/{name}" for name in sorted(candidates)]
 
 
 def sec_10k_url_for_company_year(company_query, fiscal_year):
@@ -159,7 +213,7 @@ def sec_10k_url_for_cik_year(cik, fiscal_year):
         if str(fiscal_year) not in {filing_date[:4], report_date[:4]}:
             continue
         archive_cik = str(int(cik))
-        best = f"https://www.sec.gov/Archives/edgar/data/{archive_cik}/{accession}/{document}"
+        best = best_sec_html_document_url(archive_cik, accession, document)
         if report_date[:4] == str(fiscal_year):
             return best
     return best
@@ -186,15 +240,20 @@ def company_match_score(query, title, ticker):
     if query == normalized_title:
         return 95
     if normalized_title.startswith(query):
-        return 80 + len(query) / max(len(normalized_title), 1)
+        return 90 + len(query) / max(len(normalized_title), 1)
     if query in normalized_title:
-        return 60 + len(query) / max(len(normalized_title), 1)
+        return 75 + len(query) / max(len(normalized_title), 1)
     query_tokens = set(query.split())
     title_tokens = set(normalized_title.split())
     if not query_tokens or not title_tokens:
         return 0
     overlap = len(query_tokens & title_tokens)
-    return overlap / len(query_tokens) if overlap == len(query_tokens) else 0
+    if overlap == len(query_tokens):
+        return 65 + 15 * (overlap / len(title_tokens))
+    token_similarity = overlap / len(query_tokens | title_tokens)
+    text_similarity = SequenceMatcher(None, query, normalized_title).ratio()
+    score = 60 * token_similarity + 30 * text_similarity
+    return score if score >= 45 else 0
 
 
 def normalize_company_text(value):
@@ -203,7 +262,27 @@ def normalize_company_text(value):
     words = [
         word
         for word in value.split()
-        if word not in {"the", "and", "inc", "incorporated", "corp", "corporation", "co", "company", "plc", "llc"}
+        if word
+        not in {
+            "the",
+            "and",
+            "inc",
+            "incorporated",
+            "corp",
+            "corporation",
+            "co",
+            "company",
+            "group",
+            "holding",
+            "holdings",
+            "plc",
+            "llc",
+            "ltd",
+            "lp",
+            "de",
+            "mn",
+            "nv",
+        }
     ]
     return " ".join(words)
 
@@ -223,8 +302,23 @@ def extract_cik_from_url(url):
     return ""
 
 
-def extract_period(html, text):
-    return extract_inline_xbrl_text(html, "dei", "DocumentPeriodEndDate") or extract_period_end_date(text)
+def clean_company_name(company):
+    return re.sub(r"/[A-Z]{2}/?$", "", company).strip()
+
+
+def extract_period(html, text, url=""):
+    return extract_inline_xbrl_text(html, "dei", "DocumentPeriodEndDate") or extract_period_end_date(text) or extract_period_from_url(url)
+
+
+def extract_period_from_url(url):
+    match = re.search(r"(?:^|[-_/])(\d{8})(?:[-_.]|$)", url)
+    if not match:
+        return ""
+    try:
+        date = datetime.strptime(match.group(1), "%Y%m%d")
+        return f"{date.strftime('%B')} {date.day}, {date.year}"
+    except ValueError:
+        return ""
 
 
 def parse_metric_value(value):
@@ -249,6 +343,8 @@ def convert_metric_units(value, key):
 def score_xbrl_fact(fact, key):
     snippet = html_to_text(fact.get("snippet", ""))
     score = 0
+    if fact.get("attributes", {}).get("contextRef") == "c-1":
+        score += 300
     for index, label in enumerate(PREFERRED_FACT_LABELS.get(key, ())):
         if label.lower() in snippet.lower():
             score += 100 - index
@@ -258,16 +354,17 @@ def score_xbrl_fact(fact, key):
 
 
 def extract_xbrl_metric(html, tags, key):
+    candidate_facts = []
     for tag in tags:
         facts = extract_inline_xbrl_facts(html, "us-gaap", tag)
-        if not facts:
-            match = extract_inline_xbrl_fact(html, "us-gaap", tag)
-            if not match:
-                continue
+        candidate_facts.extend(facts)
+    if candidate_facts:
+        fact = max(candidate_facts, key=lambda item: score_xbrl_fact(item, key))
+        return convert_metric_units(parse_xbrl_fact_value(fact), key)
+    for tag in tags:
+        match = extract_inline_xbrl_fact(html, "us-gaap", tag)
+        if match:
             return convert_metric_units(parse_metric_value(match.group(1)), key)
-        fact = max(facts, key=lambda item: score_xbrl_fact(item, key))
-        value = parse_xbrl_fact_value(fact)
-        return convert_metric_units(value, key)
     return None
 
 
@@ -320,6 +417,14 @@ def extract_text_metric(text, key):
 
 def extract_metrics(html, text):
     metrics = {key: extract_metric(html, text, key, tags) for key, tags in METRIC_TAGS.items()}
+    if (
+        metrics.get("operating_income") is None
+        and metrics.get("revenue") is not None
+        and metrics.get("operating_expenses") is not None
+    ):
+        # Banks and broker-dealers often do not tag a separate OperatingIncomeLoss
+        # line; use net revenues less operating/noninterest expenses as a fallback.
+        metrics["operating_income"] = metrics["revenue"] - metrics["operating_expenses"]
     if metrics.get("capex") is not None:
         metrics["capex"] = abs(metrics["capex"])
     if metrics.get("operating_cash_flow") is not None and metrics.get("capex") is not None:
@@ -333,7 +438,7 @@ def extract_metrics(html, text):
     return metrics
 
 
-def extract_sections(text):
+def extract_sections(text, url=""):
     sections = {"document": text[:4000]}
     business = summarize_business_section(extract_business_section(text))
     if business:
@@ -341,6 +446,21 @@ def extract_sections(text):
     risk_factors = summarize_risk_factors_section(extract_risk_factors_section(text))
     if risk_factors:
         sections["risk_factors"] = risk_factors
+    if "business" not in sections or "risk_factors" not in sections:
+        # Keep metrics tied to the main filing HTML, but fill missing narrative
+        # sections from companion SEC document chunks in the same accession.
+        for companion_url in narrative_companion_urls(url):
+            companion_text = html_to_text(fetch_html(companion_url))
+            if "business" not in sections:
+                business = summarize_business_section(extract_business_section(companion_text))
+                if business:
+                    sections["business"] = business
+            if "risk_factors" not in sections:
+                risk_factors = summarize_risk_factors_section(extract_risk_factors_section(companion_text))
+                if risk_factors:
+                    sections["risk_factors"] = risk_factors
+            if "business" in sections and "risk_factors" in sections:
+                break
     return sections
 
 
@@ -357,8 +477,8 @@ def analyze_html(url):
     if not looks_like_sec_filing(text):
         raise ValueError("The URL does not appear to be an SEC 10-Q or 10-K filing.")
     return {
-        "company": extract_company(html),
-        "period": extract_period(html, text),
+        "company": extract_company(html, text),
+        "period": extract_period(html, text, url),
         "metrics": extract_metrics(html, text),
-        "sections": extract_sections(text),
+        "sections": extract_sections(text, url),
     }
