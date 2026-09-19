@@ -1,0 +1,44 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: SEC filings analyzer API
+
+Globals:
+  Function:
+    Runtime: python3.12
+    Timeout: 30
+    MemorySize: 1024
+    Architectures:
+      - x86_64
+
+Resources:
+  AnalyzerFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: makefile
+    Properties:
+      Handler: lambda_function.handler
+      CodeUri: .
+      Events:
+        AnalyzeApi:
+          Type: HttpApi
+          Properties:
+            Path: /analyze
+            Method: POST
+            ApiId: !Ref AnalyzerApi
+
+  AnalyzerApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      CorsConfiguration:
+        AllowOrigins:
+          - '*'
+        AllowMethods:
+          - POST
+          - OPTIONS
+        AllowHeaders:
+          - content-type
+
+Outputs:
+  AnalyzerApiUrl:
+    Description: Analyzer API endpoint
+    Value: !Sub 'https://${AnalyzerApi}.execute-api.${AWS::Region}.amazonaws.com/analyze'
