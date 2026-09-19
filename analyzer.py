@@ -10,10 +10,10 @@ from regex_helpers import (
     extract_first_number_after_label,
     extract_first_number_between,
     extract_inline_xbrl_fact,
+    extract_inline_xbrl_facts,
     extract_inline_xbrl_text,
     extract_period_end_date,
     extract_risk_factors_section,
-    extract_scale,
     extract_title,
     html_to_text,
     looks_like_sec_filing,
@@ -28,7 +28,7 @@ METRIC_TAGS = {
     ],
     "cost_of_revenue": ["CostOfRevenue", "CostOfGoodsAndServicesSold", "CostOfGoodsSold"],
     "gross_profit": ["GrossProfit"],
-    "operating_expenses": ["OperatingExpenses"],
+    "operating_expenses": ["OperatingExpenses", "CostsAndExpenses"],
     "operating_income": ["OperatingIncomeLoss"],
     "net_income": ["NetIncomeLoss", "ProfitLoss"],
     "diluted_eps": ["EarningsPerShareDiluted"],
@@ -36,10 +36,14 @@ METRIC_TAGS = {
     "capex": ["PaymentsToAcquirePropertyPlantAndEquipment"],
     "dividends": ["PaymentsOfDividends", "PaymentsOfDividendsCommonStock", "PaymentsOfOrdinaryDividends"],
     "repurchases": ["PaymentsForRepurchaseOfCommonStock", "PaymentsForRepurchaseOfEquity"],
-    "cash": ["CashAndCashEquivalentsAtCarryingValue"],
+    "cash": ["CashAndCashEquivalentsAtCarryingValue", "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents"],
     "total_assets": ["Assets"],
     "total_liabilities": ["Liabilities"],
-    "long_term_debt": ["LongTermDebtNoncurrent", "LongTermDebt"],
+    "long_term_debt": [
+        "LongTermDebtNoncurrent",
+        "LongTermDebt",
+        "LongTermDebtAndCapitalLeaseObligations",
+    ],
     "shareholders_equity": [
         "StockholdersEquity",
         "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",
@@ -49,7 +53,15 @@ METRIC_TAGS = {
 
 PER_SHARE_METRICS = {"diluted_eps"}
 FETCH_TIMEOUT_SECONDS = 30
-ISSUER_MIRROR_TIMEOUT_SECONDS = 8
+ISSUER_MIRROR_TIMEOUT_SECONDS = 4
+SEC_COMPANY_TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
+PREFERRED_FACT_LABELS = {
+    "revenue": ("Total operating revenues", "Total revenues", "Total net sales", "Net sales", "Revenue"),
+    "operating_expenses": ("Total operating expenses", "Total costs and expenses"),
+    "total_assets": ("Total assets",),
+    "total_liabilities": ("Total liabilities",),
+    "shareholders_equity": ("Total shareholders", "Total stockholders", "Total equity"),
+}
 
 TEXT_METRIC_LABELS = {
     "revenue": ("Total net sales",),
@@ -89,7 +101,7 @@ def fetch_html(url, timeout_seconds=FETCH_TIMEOUT_SECONDS):
             return response.read(12 * 1024 * 1024).decode("utf-8", errors="replace")
     except (SocketTimeout, TimeoutError) as exc:
         raise TimeoutError(
-            "Timed out while fetching the filing HTML. Try the SEC EDGAR archive URL for this filing instead of an issuer-hosted mirror."
+            "The filing mirror did not allow the analyzer to read the HTML. Use the SEC EDGAR archive URL, or a URL that contains the company CIK so the analyzer can fall back automatically."
         ) from exc
     except HTTPError as exc:
         raise ValueError(f"Unable to fetch filing HTML: HTTP {exc.code}.") from exc
@@ -122,6 +134,80 @@ def latest_sec_10k_url_for_cik(cik):
     return ""
 
 
+def sec_10k_url_for_company_year(company_query, fiscal_year):
+    company = find_company_by_query(company_query)
+    if not company:
+        raise ValueError("Could not find that company in the SEC ticker database. Try a ticker symbol or a more specific company name.")
+    filing_url = sec_10k_url_for_cik_year(company["cik_str"], fiscal_year)
+    if not filing_url:
+        raise ValueError(f"Could not find a 10-K for {company['title']} with fiscal year {fiscal_year}.")
+    return filing_url
+
+
+def sec_10k_url_for_cik_year(cik, fiscal_year):
+    padded_cik = str(int(cik)).zfill(10)
+    submissions = fetch_json(f"https://data.sec.gov/submissions/CIK{padded_cik}.json")
+    recent = submissions.get("filings", {}).get("recent", {})
+    best = ""
+    for index, form in enumerate(recent.get("form", [])):
+        if form != "10-K":
+            continue
+        accession = recent["accessionNumber"][index].replace("-", "")
+        document = recent["primaryDocument"][index]
+        filing_date = recent["filingDate"][index]
+        report_date = recent["reportDate"][index]
+        if str(fiscal_year) not in {filing_date[:4], report_date[:4]}:
+            continue
+        archive_cik = str(int(cik))
+        best = f"https://www.sec.gov/Archives/edgar/data/{archive_cik}/{accession}/{document}"
+        if report_date[:4] == str(fiscal_year):
+            return best
+    return best
+
+
+def find_company_by_query(query):
+    normalized_query = normalize_company_text(query)
+    if not normalized_query:
+        return None
+    companies = fetch_json(SEC_COMPANY_TICKERS_URL).values()
+    candidates = []
+    for company in companies:
+        score = company_match_score(normalized_query, company.get("title", ""), company.get("ticker", ""))
+        if score:
+            candidates.append((score, company))
+    return max(candidates, key=lambda item: item[0])[1] if candidates else None
+
+
+def company_match_score(query, title, ticker):
+    normalized_title = normalize_company_text(title)
+    normalized_ticker = normalize_company_text(ticker)
+    if query == normalized_ticker:
+        return 100
+    if query == normalized_title:
+        return 95
+    if normalized_title.startswith(query):
+        return 80 + len(query) / max(len(normalized_title), 1)
+    if query in normalized_title:
+        return 60 + len(query) / max(len(normalized_title), 1)
+    query_tokens = set(query.split())
+    title_tokens = set(normalized_title.split())
+    if not query_tokens or not title_tokens:
+        return 0
+    overlap = len(query_tokens & title_tokens)
+    return overlap / len(query_tokens) if overlap == len(query_tokens) else 0
+
+
+def normalize_company_text(value):
+    value = value.lower().replace("&", " and ")
+    value = re.sub(r"[^a-z0-9]+", " ", value)
+    words = [
+        word
+        for word in value.split()
+        if word not in {"the", "and", "inc", "incorporated", "corp", "corporation", "co", "company", "plc", "llc"}
+    ]
+    return " ".join(words)
+
+
 def fallback_sec_url_for_input_url(url):
     cik = extract_cik_from_url(url)
     if not cik:
@@ -145,18 +231,73 @@ def parse_metric_value(value):
     return float(value.replace(",", "").replace("(", "-").replace(")", ""))
 
 
+def parse_xbrl_fact_value(fact):
+    value = parse_metric_value(fact["value"])
+    attributes = fact["attributes"]
+    value *= 10 ** int(attributes.get("scale", "0"))
+    if attributes.get("sign") == "-":
+        value *= -1
+    return value
+
+
+def convert_metric_units(value, key):
+    if key in PER_SHARE_METRICS:
+        return value
+    return abs(value) / 1_000_000 if key in {"capex", "dividends", "repurchases"} else value / 1_000_000
+
+
+def score_xbrl_fact(fact, key):
+    snippet = html_to_text(fact.get("snippet", ""))
+    score = 0
+    for index, label in enumerate(PREFERRED_FACT_LABELS.get(key, ())):
+        if label.lower() in snippet.lower():
+            score += 100 - index
+    if "total" in snippet.lower():
+        score += 20
+    return score
+
+
 def extract_xbrl_metric(html, tags, key):
     for tag in tags:
-        match = extract_inline_xbrl_fact(html, "us-gaap", tag)
-        if not match:
-            continue
-        value = parse_metric_value(match.group(1))
-        scale_match = extract_scale(html, "us-gaap", tag)
-        value *= 10 ** int(scale_match.group(1)) if scale_match else 1
-        if key in PER_SHARE_METRICS:
-            return value
-        return abs(value) / 1_000_000 if key in {"capex", "dividends", "repurchases"} else value / 1_000_000
+        facts = extract_inline_xbrl_facts(html, "us-gaap", tag)
+        if not facts:
+            match = extract_inline_xbrl_fact(html, "us-gaap", tag)
+            if not match:
+                continue
+            return convert_metric_units(parse_metric_value(match.group(1)), key)
+        fact = max(facts, key=lambda item: score_xbrl_fact(item, key))
+        value = parse_xbrl_fact_value(fact)
+        return convert_metric_units(value, key)
     return None
+
+
+def extract_total_liabilities(html, text):
+    direct_value = extract_xbrl_metric(html, ["Liabilities"], "total_liabilities")
+    if direct_value is not None:
+        return direct_value
+    current_value = extract_xbrl_metric(html, ["LiabilitiesCurrent"], "total_liabilities")
+    noncurrent_value = extract_xbrl_metric(html, ["LiabilitiesNoncurrent"], "total_liabilities")
+    if current_value is not None and noncurrent_value is not None:
+        return current_value + noncurrent_value
+    assets = extract_xbrl_metric(html, ["Assets"], "total_assets")
+    equity = extract_xbrl_metric(
+        html,
+        ["StockholdersEquity", "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest"],
+        "shareholders_equity",
+    )
+    if assets is not None and equity is not None:
+        return assets - equity
+    for label in TEXT_METRIC_LABELS.get("total_liabilities", ()):
+        value = extract_first_number_after_label(text, label)
+        if value:
+            return parse_metric_value(value)
+    return None
+
+
+def extract_metric(html, text, key, tags):
+    if key == "total_liabilities":
+        return extract_total_liabilities(html, text)
+    return extract_xbrl_metric(html, tags, key) or extract_text_metric(text, key)
 
 
 def extract_text_metric(text, key):
@@ -175,10 +316,6 @@ def extract_text_metric(text, key):
             parsed = parse_metric_value(value)
             return abs(parsed) if key in {"capex", "dividends", "repurchases"} else parsed
     return None
-
-
-def extract_metric(html, text, key, tags):
-    return extract_xbrl_metric(html, tags, key) or extract_text_metric(text, key)
 
 
 def extract_metrics(html, text):

@@ -1,4 +1,5 @@
 """Regex utilities for SEC HTML filing extraction."""
+import html as html_lib
 import re
 
 __all__ = [
@@ -6,6 +7,7 @@ __all__ = [
     "extract_first_number_after_label",
     "extract_first_number_between",
     "extract_inline_xbrl_fact",
+    "extract_inline_xbrl_facts",
     "extract_inline_xbrl_text",
     "extract_period_end_date",
     "extract_risk_factors_section",
@@ -64,6 +66,34 @@ def extract_inline_xbrl_fact(html, namespace, tag):
     )
 
 
+def extract_inline_xbrl_facts(html, namespace, tag):
+    # Matches exact inline-XBRL numeric facts for a tag and returns their attributes plus displayed number.
+    facts = []
+    fact_pattern = re.compile(
+        rf"<ix:nonFraction\b(?=[^>]*\bname=[\"'](?:{namespace}:)?{tag}[\"'])[^>]*>.*?</ix:nonFraction>",
+        re.I | re.S,
+    )
+    for match in fact_pattern.finditer(html):
+        element = match.group(0)
+        # Matches key="value" or key='value' attributes so scale, sign, and context can be read.
+        attributes = {
+            attr.group(1): attr.group(3)
+            for attr in re.finditer(r"([\w:-]+)\s*=\s*([\"'])(.*?)\2", element, re.I | re.S)
+        }
+        # Matches the visible number inside the fact after removing nested tags.
+        value = re.search(r"[\(\)-]?\d[\d,]*(?:\.\d+)?", _strip_html_tags(element))
+        if value:
+            facts.append(
+                {
+                    "attributes": attributes,
+                    "value": value.group(0),
+                    "start": match.start(),
+                    "snippet": html[max(0, match.start() - 700) : match.end() + 100],
+                }
+            )
+    return facts
+
+
 def extract_first_number_after_label(text, label):
     # Matches a text label followed by an optional dollar sign and captures the first table-style number after it.
     match = re.search(
@@ -120,7 +150,7 @@ def extract_inline_xbrl_text(html, namespace, tag):
         html,
         re.I | re.S,
     )
-    return _strip_html_tags(match.group(1)).strip() if match else ""
+    return _collapse_whitespace(html_lib.unescape(_strip_html_tags(match.group(1)))).strip() if match else ""
 
 
 def extract_scale(html, namespace, tag):
@@ -135,7 +165,7 @@ def extract_scale(html, namespace, tag):
 def extract_title(html):
     # Matches the page title element and captures its contents.
     match = re.search(r"<title[^>]*>(.*?)</title>", html, re.I | re.S)
-    return _strip_html_tags(match.group(1)).strip() if match else ""
+    return _collapse_whitespace(html_lib.unescape(_strip_html_tags(match.group(1)))).strip() if match else ""
 
 
 def extract_period_end_date(text):

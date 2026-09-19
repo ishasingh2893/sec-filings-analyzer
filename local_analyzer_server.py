@@ -2,7 +2,7 @@
 import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from analyzer import analyze_html
+from analyzer import analyze_html, sec_10k_url_for_company_year
 
 
 class AnalyzerHandler(BaseHTTPRequestHandler):
@@ -14,8 +14,10 @@ class AnalyzerHandler(BaseHTTPRequestHandler):
             length = int(self.headers.get("content-length", "0"))
             payload = json.loads(self.rfile.read(length) or b"{}")
             url = payload.get("url", "")
+            if payload.get("company") and payload.get("year"):
+                url = sec_10k_url_for_company_year(payload["company"], str(payload["year"]))
             if not url.startswith("https://"):
-                self._send_json(400, {"error": "Provide an HTTPS SEC filing URL."})
+                self._send_json(400, {"error": "Provide an HTTPS SEC filing URL or a company and fiscal year."})
                 return
             self._send_json(200, analyze_html(url))
         except Exception as exc:

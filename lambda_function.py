@@ -1,6 +1,6 @@
 """AWS Lambda entry point for small SEC HTML filing analyses."""
 import json
-from analyzer import analyze_html
+from analyzer import analyze_html, sec_10k_url_for_company_year
 
 
 def handler(event, context):
@@ -11,8 +11,10 @@ def handler(event, context):
     try:
         payload = json.loads(event.get("body") or "{}")
         url = payload.get("url", "")
+        if payload.get("company") and payload.get("year"):
+            url = sec_10k_url_for_company_year(payload["company"], str(payload["year"]))
         if not url.startswith("https://"):
-            return response(400, {"error": "Provide an HTTPS SEC filing URL."})
+            return response(400, {"error": "Provide an HTTPS SEC filing URL or a company and fiscal year."})
         return response(200, analyze_html(url))
     except Exception as exc:
         return response(400, {"error": str(exc)})
