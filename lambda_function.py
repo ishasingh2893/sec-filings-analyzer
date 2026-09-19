@@ -24,9 +24,6 @@ def response(status, body):
     return {
         "statusCode": status,
         "headers": {
-            "access-control-allow-origin": "*",
-            "access-control-allow-methods": "POST, OPTIONS",
-            "access-control-allow-headers": "content-type",
             "content-type": "application/json",
         },
         "body": "" if status == 204 else json.dumps(body),

@@ -4,7 +4,8 @@ import { ArrowUpRight, Upload, FileText, ArrowRight, Check, Loader2 } from 'luci
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { analyze, readFile, demo, type Report, type MetricKey, labels, valueOf, valuation } from '@/lib/filing';
-const LAMBDA_URL=import.meta.env.VITE_ANALYZER_API_URL||import.meta.env.NEXT_PUBLIC_ANALYZER_API_URL||'http://localhost:8000/';
+const DEFAULT_ANALYZER_API_URL='https://zolnsjttd5k7ny7d6yhlf7v6cq0tcpfi.lambda-url.us-east-2.on.aws/';
+const LAMBDA_URL=import.meta.env.VITE_ANALYZER_API_URL||import.meta.env.NEXT_PUBLIC_ANALYZER_API_URL||DEFAULT_ANALYZER_API_URL;
 const DEFAULT_FILING_URL='https://d18rn0p25nwr6d.cloudfront.net/CIK-0000320193/c636d8a7-8025-47d2-9b13-bcf5465343b3.html';
 const DEFAULT_COMPANY='Apple';
 const DEFAULT_YEAR='2025';
