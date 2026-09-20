@@ -86,6 +86,12 @@ TEXT_METRIC_LABELS = {
     "shareholders_equity": ("Total shareholders’ equity", "Total shareholders' equity", "Total shareholders&#8217; equity"),
 }
 
+EMPLOYEE_COUNT_PATTERNS = (
+    r"\b(?:we|the company|our company|the registrant)\s+(?:had|employed|employs)\s+(?:approximately|about|over|more than|nearly)?\s*([\d,.]+)\s*(thousand|million)?\s+(?:active\s+)?(?:full-time equivalent\s+|full-time\s+|part-time\s+)?(?:employees|team members|associates|people)\b",
+    r"\b(?:employees|team members|associates|workforce)\s+(?:totaled|numbered|of)\s+(?:approximately|about|over|more than|nearly)?\s*([\d,.]+)\s*(thousand|million)?\b",
+    r"\b(?:approximately|about|over|more than|nearly)\s*([\d,.]+)\s*(thousand|million)?\s+(?:active\s+)?(?:full-time equivalent\s+|full-time\s+|part-time\s+)?(?:employees|team members|associates|people)\b",
+)
+
 
 def extract_company(html, text):
     company = extract_inline_xbrl_text(html, "dei", "EntityRegistrantName")
@@ -327,6 +333,15 @@ def parse_metric_value(value):
     return float(value.replace(",", "").replace("(", "-").replace(")", ""))
 
 
+def parse_employee_count(value, scale=""):
+    count = float(value.replace(",", ""))
+    if scale.lower() == "million":
+        count *= 1_000_000
+    elif scale.lower() == "thousand":
+        count *= 1_000
+    return count
+
+
 def parse_xbrl_fact_value(fact):
     value = parse_metric_value(fact["value"])
     attributes = fact["attributes"]
@@ -419,6 +434,7 @@ def extract_text_metric(text, key):
 
 def extract_metrics(html, text):
     metrics = {key: extract_metric(html, text, key, tags) for key, tags in METRIC_TAGS.items()}
+    metrics["employees"] = extract_employee_count(text)
     if (
         metrics.get("operating_income") is None
         and metrics.get("revenue") is not None
@@ -438,6 +454,15 @@ def extract_metrics(html, text):
     else:
         metrics["capital_return"] = None
     return metrics
+
+
+def extract_employee_count(text):
+    for pattern in EMPLOYEE_COUNT_PATTERNS:
+        for match in re.finditer(pattern, text, re.I):
+            count = parse_employee_count(match.group(1), match.group(2) or "")
+            if 1 <= count <= 10_000_000:
+                return count
+    return None
 
 
 def extract_sections(text, url=""):
