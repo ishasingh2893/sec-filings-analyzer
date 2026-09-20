@@ -123,11 +123,15 @@ def extract_business_section(text):
     starts = re.finditer(r"\bItem\s+1[.\s:–-]+Business\b", text, re.I)
     sections = []
     for start in starts:
+        if _is_table_of_contents_item(text, start) or _is_cross_reference_item(text, start):
+            continue
         section = text[start.end() :]
         end = re.search(r"\bItem\s+1A[.\s:–-]+Risk Factors\b", section, re.I)
         if end:
             section = section[: end.start()]
-        sections.append(_collapse_whitespace(section).strip())
+        section = _collapse_whitespace(section).strip()
+        if len(section) > 1000:
+            sections.append(section)
     return max(sections, key=len) if sections else ""
 
 
@@ -141,6 +145,8 @@ def extract_risk_factors_section(text):
     )
     sections = []
     for start, end_pattern in starts:
+        if _is_table_of_contents_item(text, start) or _is_cross_reference_item(text, start):
+            continue
         section = text[start.end() :]
         end = re.search(end_pattern, section, re.I)
         if end:
@@ -149,6 +155,20 @@ def extract_risk_factors_section(text):
         if len(section) > 1000:
             sections.append(section)
     return max(sections, key=len) if sections else ""
+
+
+def _is_table_of_contents_item(text, match):
+    # Matches table-of-contents rows where an Item heading is immediately followed by a page number
+    # and another Item heading, instead of actual narrative section text.
+    after = text[match.end() : match.end() + 80]
+    return bool(re.match(r"\s+\d+\s+Item\s+\d", after, re.I))
+
+
+def _is_cross_reference_item(text, match):
+    # Matches references such as "under Part I, Item 1. Business" or
+    # "see Part I, Item 1A. Risk Factors" that are not section headings.
+    before = text[max(0, match.start() - 45) : match.start()]
+    return bool(re.search(r"\b(?:see|under|in|of)\s+(?:part\s+i,?\s*)?$", before, re.I))
 
 
 def extract_cover_page_company_name(text):
