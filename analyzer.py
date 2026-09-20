@@ -58,6 +58,8 @@ METRIC_TAGS = {
 PER_SHARE_METRICS = {"diluted_eps"}
 FETCH_TIMEOUT_SECONDS = 30
 ISSUER_MIRROR_TIMEOUT_SECONDS = 4
+COMPANION_FETCH_TIMEOUT_SECONDS = 4
+MAX_COMPANION_DOCUMENTS = 4
 SEC_COMPANY_TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
 PREFERRED_FACT_LABELS = {
     "revenue": ("Total operating revenues", "Total revenues", "Total net sales", "Net sales", "Revenue"),
@@ -185,7 +187,7 @@ def narrative_companion_urls(url):
         # when the main HTML is the better source for financial statements.
         if re.search(r"_d\d+\.htm$", name, re.I):
             candidates.append(name)
-    return [f"{base_url}/{name}" for name in sorted(candidates)]
+    return [f"{base_url}/{name}" for name in sorted(candidates)[:MAX_COMPANION_DOCUMENTS]]
 
 
 def sec_10k_url_for_company_year(company_query, fiscal_year):
@@ -450,7 +452,10 @@ def extract_sections(text, url=""):
         # Keep metrics tied to the main filing HTML, but fill missing narrative
         # sections from companion SEC document chunks in the same accession.
         for companion_url in narrative_companion_urls(url):
-            companion_text = html_to_text(fetch_html(companion_url))
+            try:
+                companion_text = html_to_text(fetch_html(companion_url, COMPANION_FETCH_TIMEOUT_SECONDS))
+            except Exception:
+                continue
             if "business" not in sections:
                 business = summarize_business_section(extract_business_section(companion_text))
                 if business:
