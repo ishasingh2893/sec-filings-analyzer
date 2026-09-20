@@ -34,12 +34,21 @@ const fundamentals:{title:string;caption:string;entries:FundamentalEntry[]}[]=[
 function fundamentalValue(report:Report,entry:FundamentalEntry){if(!entry.metric)return '—';const value=valueOf(report,entry.metric);if(value===null)return '—';let formatted=entry.metric==='shares'?value.toLocaleString('en-US',{maximumFractionDigits:1})+'m':entry.metric==='dilutedEps'?'$'+value.toLocaleString('en-US',{maximumFractionDigits:2}):money(value);return entry.deduct?'('+formatted+')':formatted;}
 function fundamentalSource(report:Report,entry:FundamentalEntry){if(!entry.metric)return entry.detail;const metric=report.metrics[entry.metric];return metric.value===null?'Not separately reported in this filing':entry.detail;}
 function visibleFundamentalEntries(report:Report,entries:FundamentalEntry[]){return entries.filter(entry=>!entry.hideWhenMissing||!entry.metric||valueOf(report,entry.metric)!==null);}
+async function parseAnalyzerResponse(res:Response):Promise<LambdaResponse>{
+ const text=await res.text();
+ if(!text)return {};
+ try{return JSON.parse(text) as LambdaResponse;}
+ catch{
+  const message=text.length>180?text.slice(0,180)+'…':text;
+  return {error:message||'Analyzer returned a non-JSON response.'};
+ }
+}
 export default function Home(){
  const [report,setReport]=useState<Report|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[status,setStatus]=useState(''),[reviewed,setReviewed]=useState(false);
  const [low,setLow]=useState('15'),[high,setHigh]=useState('25'),[price,setPrice]=useState(''),[filingUrl,setFilingUrl]=useState(DEFAULT_FILING_URL);
  const [companyQuery,setCompanyQuery]=useState(DEFAULT_COMPANY),[filingYear,setFilingYear]=useState(DEFAULT_YEAR);
  const [activeFundamental,setActiveFundamental]=useState(0);
- async function runAnalysis(payload:AnalyzePayload,filename:string){if(busy)return;setBusy(true);setError('');setStatus('Fetching SEC filing…');try{const res=await fetch(LAMBDA_URL,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)});const data=await res.json() as LambdaResponse;if(!res.ok)throw Error(data.error||'Unable to analyze filing.');const next:Report={company:data.company||'Company name not found',period:data.period||'',filename,method:'SEC HTML extraction',metrics:emptyMetrics(),notes:['Analysis returned from SEC filing extraction.'],excerpts:remoteExcerpts(data)};applyRemoteMetrics(next,data,'SEC filing · inline XBRL');setReport(next);setReviewed(false);setPrice('');setStatus('Analysis ready. Review the extracted figures below.');}catch(e){setError(e instanceof Error?e.message:'Unable to analyze filing.');setStatus('');}finally{setBusy(false);}}
+ async function runAnalysis(payload:AnalyzePayload,filename:string){if(busy)return;setBusy(true);setError('');setStatus('Fetching SEC filing…');try{const res=await fetch(LAMBDA_URL,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)});const data=await parseAnalyzerResponse(res);if(!res.ok)throw Error(data.error||`Analyzer request failed with status ${res.status}.`);if(data.error)throw Error(data.error);const next:Report={company:data.company||'Company name not found',period:data.period||'',filename,method:'SEC HTML extraction',metrics:emptyMetrics(),notes:['Analysis returned from SEC filing extraction.'],excerpts:remoteExcerpts(data)};applyRemoteMetrics(next,data,'SEC filing · inline XBRL');setReport(next);setReviewed(false);setPrice('');setStatus('Analysis ready. Review the extracted figures below.');}catch(e){setError(e instanceof Error?e.message:'Unable to analyze filing.');setStatus('');}finally{setBusy(false);}}
  async function analyzeCompany(){if(!companyQuery||!filingYear||busy)return;await runAnalysis({company:companyQuery,year:filingYear},`${companyQuery} · ${filingYear} 10-K`);}
  async function analyzeUrl(){if(!filingUrl||busy)return;await runAnalysis({url:filingUrl},filingUrl);}
  function update(key:MetricKey,v:string){if(!report)return;const current=report.metrics[key].value,scale=displayScale(key,current);setReport({...report,metrics:{...report.metrics,[key]:{...report.metrics[key],value:v===''?null:Number(v)*scale,manual:true}}});setReviewed(false);}
