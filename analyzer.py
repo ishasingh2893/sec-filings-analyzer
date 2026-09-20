@@ -87,6 +87,8 @@ TEXT_METRIC_LABELS = {
 }
 
 EMPLOYEE_COUNT_PATTERNS = (
+    r"\b(?:we|the company|our company|the registrant)\s+had\s+headcount\s+of\s+([\d,.]+)\s*(thousand|million)?\b",
+    r"\bheadcount\s+(?:was|of|totaled|numbered)\s+([\d,.]+)\s*(thousand|million)?\b",
     r"\b(?:we|the company|our company|the registrant)\s+(?:had|employed|employs)\s+(?:approximately|about|over|more than|nearly)?\s*([\d,.]+)\s*(thousand|million)?\s+(?:active\s+)?(?:full-time equivalent\s+|full-time\s+|part-time\s+)?(?:employees|team members|associates|people)\b",
     r"\b(?:employees|team members|associates|workforce)\s+(?:totaled|numbered|of)\s+(?:approximately|about|over|more than|nearly)?\s*([\d,.]+)\s*(thousand|million)?\b",
     r"\b(?:approximately|about|over|more than|nearly)\s*([\d,.]+)\s*(thousand|million)?\s+(?:active\s+)?(?:full-time equivalent\s+|full-time\s+|part-time\s+)?(?:employees|team members|associates|people)\b",
@@ -459,6 +461,9 @@ def extract_metrics(html, text):
 def extract_employee_count(text):
     for pattern in EMPLOYEE_COUNT_PATTERNS:
         for match in re.finditer(pattern, text, re.I):
+            context = text[max(0, match.start() - 180) : match.end() + 180].lower()
+            if re.search(r"\b(volunteer|volunteered|partnering|nonprofit|community|project|hours of service)\b", context):
+                continue
             count = parse_employee_count(match.group(1), match.group(2) or "")
             if 1 <= count <= 10_000_000:
                 return count
