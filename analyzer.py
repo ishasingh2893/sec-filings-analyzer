@@ -6,7 +6,7 @@ import re
 from socket import timeout as SocketTimeout
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
-from business_summarizer import summarize_business_section, summarize_risk_factors_section
+from business_summarizer import summarize_business_section, summarize_products_services_section, summarize_risk_factors_section
 from regex_helpers import (
     extract_business_section,
     extract_cover_page_company_name,
@@ -442,13 +442,17 @@ def extract_metrics(html, text):
 
 def extract_sections(text, url=""):
     sections = {"document": text[:4000]}
-    business = summarize_business_section(extract_business_section(text))
+    business_section = extract_business_section(text)
+    business = summarize_business_section(business_section)
     if business:
         sections["business"] = business
+    products_services = summarize_products_services_section(business_section)
+    if products_services:
+        sections["products_services"] = products_services
     risk_factors = summarize_risk_factors_section(extract_risk_factors_section(text))
     if risk_factors:
         sections["risk_factors"] = risk_factors
-    if "business" not in sections or "risk_factors" not in sections:
+    if "business" not in sections or "products_services" not in sections or "risk_factors" not in sections:
         # Keep metrics tied to the main filing HTML, but fill missing narrative
         # sections from companion SEC document chunks in the same accession.
         for companion_url in narrative_companion_urls(url):
@@ -456,15 +460,20 @@ def extract_sections(text, url=""):
                 companion_text = html_to_text(fetch_html(companion_url, COMPANION_FETCH_TIMEOUT_SECONDS))
             except Exception:
                 continue
+            companion_business_section = extract_business_section(companion_text)
             if "business" not in sections:
-                business = summarize_business_section(extract_business_section(companion_text))
+                business = summarize_business_section(companion_business_section)
                 if business:
                     sections["business"] = business
+            if "products_services" not in sections:
+                products_services = summarize_products_services_section(companion_business_section)
+                if products_services:
+                    sections["products_services"] = products_services
             if "risk_factors" not in sections:
                 risk_factors = summarize_risk_factors_section(extract_risk_factors_section(companion_text))
                 if risk_factors:
                     sections["risk_factors"] = risk_factors
-            if "business" in sections and "risk_factors" in sections:
+            if "business" in sections and "products_services" in sections and "risk_factors" in sections:
                 break
     return sections
 

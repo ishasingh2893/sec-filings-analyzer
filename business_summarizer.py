@@ -54,6 +54,44 @@ RISK_BOILERPLATE = (
     "not the only risks",
 )
 
+PRODUCT_SERVICE_TERMS = {
+    "advertising",
+    "accessories",
+    "applications",
+    "cards",
+    "cloud",
+    "computers",
+    "consumer",
+    "customers",
+    "deposit",
+    "deposits",
+    "devices",
+    "digital",
+    "energy",
+    "equipment",
+    "hardware",
+    "insurance",
+    "line",
+    "loans",
+    "markets",
+    "merchandise",
+    "operations",
+    "platform",
+    "platforms",
+    "products",
+    "retail",
+    "segments",
+    "services",
+    "software",
+    "solutions",
+    "smartphones",
+    "subscriptions",
+    "tablets",
+    "technology",
+    "vehicles",
+    "wearables",
+}
+
 MAX_TEXTRANK_SENTENCES = 120
 
 
@@ -66,6 +104,35 @@ def summarize_risk_factors_section(text, sentence_count=4, max_chars=1000):
     if block_summaries:
         return _join_with_limit(block_summaries, max_chars)
     return _summarize_section(text, sentence_count, max_chars, BOILERPLATE + RISK_BOILERPLATE, 1_000_000, 0.38)
+
+
+def summarize_products_services_section(text, sentence_count=4, max_chars=900):
+    sentences = _candidate_sentences(text, BOILERPLATE)
+    if not sentences:
+        return ""
+    scored = []
+    for index, sentence in enumerate(sentences[:MAX_TEXTRANK_SENTENCES]):
+        words = set(_words(sentence))
+        term_score = len(words & PRODUCT_SERVICE_TERMS)
+        heading_score = 2 if re.search(r"\b(products?|services?|segments?|solutions?|platforms?)\b", sentence, re.I) else 0
+        phrase_score = 3 if re.search(r"\b(line of|provides?|offers?|sells?|products? and services?|principal business)\b", sentence, re.I) else 0
+        risk_penalty = 3 if re.search(r"\b(competition|competitive|risk|adverse|litigation)\b", sentence, re.I) else 0
+        score = term_score + heading_score + phrase_score - risk_penalty
+        if score > 0:
+            scored.append((score, -index, index, _clean_product_sentence(sentence)))
+    if not scored:
+        return ""
+    ranked = sorted(scored, reverse=True)
+    selected = sorted(ranked[:sentence_count], key=lambda item: item[2])
+    return _join_with_limit([sentence for _, _, _, sentence in selected], max_chars)
+
+
+def _clean_product_sentence(sentence):
+    return re.sub(
+        r"^[A-Z][A-Za-z& /-]{2,35}\s+(?=(?:The Company|We|Our)\b)",
+        "",
+        sentence,
+    ).strip()
 
 
 def _summarize_section(text, sentence_count, max_chars, boilerplate, position_half_life, diversity_threshold=None):
