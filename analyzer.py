@@ -471,7 +471,7 @@ def extract_employee_count(text):
 
 
 def extract_sections(text, url=""):
-    sections = {"document": text[:4000]}
+    sections = {"document": text}
     business_section = extract_business_section(text)
     business = summarize_business_section(business_section)
     if business:

@@ -8,6 +8,10 @@ Requires Node 22.13 or newer. Run `npm ci`, then `npm run dev`. Production build
 
 The browser calls the analyzer API at `VITE_ANALYZER_API_URL`, falling back to `NEXT_PUBLIC_ANALYZER_API_URL`, then `http://localhost:8000/` for local development.
 
+## BM25 Filing Chat
+
+After a 10-K is loaded, the app chunks the returned filing text in the browser and ranks passages with BM25 for each chat query. The chat currently returns grounded retrieval results only; no LLM synthesis is connected yet. This keeps the grounding layer testable before adding a model call.
+
 ## Analysis
 
 Drop a PDF annual filing (30 MB maximum). Files remain in browser memory and are not uploaded or persisted. PDF text extraction uses bundled PDF.js. Scanned PDFs require OCR before uploading.
