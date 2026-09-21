@@ -6,11 +6,25 @@ A browser-based 10-K research dashboard styled to match Isha's portfolio: Newsre
 
 Requires Node 22.13 or newer. Run `npm ci`, then `npm run dev`. Production build: `npm run build`.
 
-The browser calls the analyzer API at `VITE_ANALYZER_API_URL`, falling back to `NEXT_PUBLIC_ANALYZER_API_URL`, then `http://localhost:8000/` for local development.
+The browser calls the analyzer API at `VITE_ANALYZER_API_URL`, falling back to `NEXT_PUBLIC_ANALYZER_API_URL`. For local development, keep this in ignored `.env.local`:
+
+`VITE_ANALYZER_API_URL=http://localhost:8000/`
+
+For AWS/deployed runs, configure `VITE_ANALYZER_API_URL` in the deployment environment with the Lambda/API URL instead of committing it.
+
+For generated chat answers, set an OpenAI API key in your local environment before starting the dev server:
+
+`OPENAI_API_KEY=your_key_here`
+
+Optional:
+
+`OPENAI_MODEL=gpt-5.6-luna`
+
+The key is read only by the server-side `/api/chat` route and should not be exposed with a `VITE_` or `NEXT_PUBLIC_` prefix.
 
 ## BM25 Filing Chat
 
-After a 10-K is loaded, the app chunks the returned filing text in the browser and ranks passages with BM25 for each chat query. The chat currently returns grounded retrieval results only; no LLM synthesis is connected yet. This keeps the grounding layer testable before adding a model call.
+After a 10-K is loaded, the app chunks the returned filing text in the browser and ranks passages with BM25 for each chat query. The top retrieved passages are sent to the server-side chat endpoint, which calls OpenAI when `OPENAI_API_KEY` is configured. Answers are instructed to use only the retrieved filing excerpts and cite them inline.
 
 ## Analysis
 
