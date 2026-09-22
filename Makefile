@@ -10,3 +10,4 @@ build-ChatFunction:
 	mkdir -p "$(ARTIFACTS_DIR)"
 	cp backend/chat/chat_lambda_function.mjs "$(ARTIFACTS_DIR)/"
 	cp backend/chat/chat-core.js "$(ARTIFACTS_DIR)/chat-core.js"
+	cp backend/chat/package.json "$(ARTIFACTS_DIR)/package.json"

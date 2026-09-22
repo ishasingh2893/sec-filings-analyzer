@@ -1,0 +1,49 @@
+name: Deploy AWS
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  sam-deploy:
+    runs-on: ubuntu-latest
+    env:
+      AWS_REGION: us-east-2
+      STACK_NAME: sec-filings-analyzer
+      OPENAI_MODEL: ${{ vars.OPENAI_MODEL || 'gpt-5.6-luna' }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set up SAM CLI
+        uses: aws-actions/setup-sam@v2
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Build SAM application
+        run: sam build
+
+      - name: Deploy SAM stack
+        run: >
+          sam deploy
+          --stack-name "$STACK_NAME"
+          --region "$AWS_REGION"
+          --resolve-s3
+          --capabilities CAPABILITY_IAM
+          --no-confirm-changeset
+          --no-fail-on-empty-changeset
+          --parameter-overrides
+          OpenAIApiKey="${{ secrets.OPENAI_API_KEY }}"
+          OpenAIModel="$OPENAI_MODEL"

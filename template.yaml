@@ -39,6 +39,8 @@ Resources:
 
   ChatFunction:
     Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: makefile
     Properties:
       Runtime: nodejs22.x
       Handler: chat_lambda_function.handler

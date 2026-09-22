@@ -38,6 +38,7 @@ next-env.d.ts
 /outputs/
 /.lambda_build/
 /.chat_lambda_build/
+/.aws-sam/
 /work/
 
 *.tsbuildinfo

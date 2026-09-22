@@ -11,6 +11,7 @@ mkdir -p "$BUILD_DIR" "$OUTPUT_DIR"
 
 cp "$ROOT_DIR/backend/chat/chat_lambda_function.mjs" "$BUILD_DIR/"
 cp "$ROOT_DIR/backend/chat/chat-core.js" "$BUILD_DIR/chat-core.js"
+cp "$ROOT_DIR/backend/chat/package.json" "$BUILD_DIR/package.json"
 
 (
   cd "$BUILD_DIR"
