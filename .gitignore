@@ -37,6 +37,7 @@ next-env.d.ts
 /.wrangler/
 /outputs/
 /.lambda_build/
+/.chat_lambda_build/
 /work/
 
 *.tsbuildinfo

@@ -1,13 +1,16 @@
 # AWS Deployment
 
-This project has two deployable parts:
+This project has three deployable parts:
 
 - Python analyzer API: AWS Lambda behind API Gateway.
+- Node chat API: AWS Lambda behind API Gateway.
 - React/Vinext frontend: host with AWS Amplify, or another static/frontend host that can run the build.
 
 ## Backend: Lambda + API Gateway
 
-The Lambda entry point is `lambda_function.handler`.
+The analyzer Lambda entry point is `lambda_function.handler`.
+
+The chat Lambda entry point is `chat_lambda_function.handler`.
 
 Recommended settings:
 
@@ -15,6 +18,7 @@ Recommended settings:
 - Memory: 1024 MB
 - Timeout: 30 seconds
 - API route: `POST /analyze`
+- API route: `POST /chat`
 - CORS: allow the frontend domain. `*` is acceptable while testing.
 
 ### Deploy with AWS SAM
@@ -27,6 +31,14 @@ sam deploy --guided
 ```
 
 SAM will print the `AnalyzerApiUrl` output. Use that URL in the frontend environment variable.
+It also prints `ChatApiUrl`. Use that URL as `VITE_CHAT_API_URL`.
+
+For the chat Lambda, provide OpenAI settings during guided deploy or as parameter overrides:
+
+```sh
+sam deploy \
+  --parameter-overrides OpenAIApiKey=your_key_here OpenAIModel=gpt-5.6-luna
+```
 
 The SAM template uses `Makefile` packaging so only the Lambda Python files are included in the backend artifact.
 
@@ -45,6 +57,27 @@ lambda_function.handler
 ```
 
 Then create an API Gateway HTTP API route that sends `POST /analyze` to the Lambda.
+
+For the chat Lambda zip:
+
+```sh
+./scripts/package_chat_lambda.sh
+```
+
+Upload `outputs/sec-filings-chat-lambda.zip` to a Node.js 22 Lambda and set the handler to:
+
+```text
+chat_lambda_function.handler
+```
+
+Set environment variables on the chat Lambda:
+
+```text
+OPENAI_API_KEY=your_key_here
+OPENAI_MODEL=gpt-5.6-luna
+```
+
+Then create an API Gateway HTTP API route that sends `POST /chat` to the chat Lambda.
 
 ## Frontend
 
@@ -70,6 +103,7 @@ In AWS Amplify, set:
 
 ```text
 VITE_ANALYZER_API_URL=https://your-api-id.execute-api.your-region.amazonaws.com/analyze
+VITE_CHAT_API_URL=https://your-api-id.execute-api.your-region.amazonaws.com/chat
 ```
 
 Then use the normal build command:

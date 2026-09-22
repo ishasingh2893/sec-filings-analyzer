@@ -12,6 +12,10 @@ The browser calls the analyzer API at `VITE_ANALYZER_API_URL`, falling back to `
 
 For AWS/deployed runs, configure `VITE_ANALYZER_API_URL` in the deployment environment with the Lambda/API URL instead of committing it.
 
+If chat answers are served from the AWS chat Lambda, also configure:
+
+`VITE_CHAT_API_URL=https://your-api-id.execute-api.your-region.amazonaws.com/chat`
+
 For generated chat answers, set an OpenAI API key in your local environment before starting the dev server:
 
 `OPENAI_API_KEY=your_key_here`

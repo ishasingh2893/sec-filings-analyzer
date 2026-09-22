@@ -1,6 +1,17 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
-Description: SEC filings analyzer API
+Description: SEC filings analyzer and chat APIs
+
+Parameters:
+  OpenAIApiKey:
+    Type: String
+    NoEcho: true
+    Default: ''
+    Description: OpenAI API key for the chat Lambda.
+  OpenAIModel:
+    Type: String
+    Default: gpt-5.6-luna
+    Description: OpenAI model for grounded filing chat answers.
 
 Globals:
   Function:
@@ -26,6 +37,24 @@ Resources:
             Method: POST
             ApiId: !Ref AnalyzerApi
 
+  ChatFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Runtime: nodejs22.x
+      Handler: chat_lambda_function.handler
+      CodeUri: .
+      Environment:
+        Variables:
+          OPENAI_API_KEY: !Ref OpenAIApiKey
+          OPENAI_MODEL: !Ref OpenAIModel
+      Events:
+        ChatApi:
+          Type: HttpApi
+          Properties:
+            Path: /chat
+            Method: POST
+            ApiId: !Ref AnalyzerApi
+
   AnalyzerApi:
     Type: AWS::Serverless::HttpApi
     Properties:
@@ -42,3 +71,6 @@ Outputs:
   AnalyzerApiUrl:
     Description: Analyzer API endpoint
     Value: !Sub 'https://${AnalyzerApi}.execute-api.${AWS::Region}.amazonaws.com/analyze'
+  ChatApiUrl:
+    Description: Chat API endpoint
+    Value: !Sub 'https://${AnalyzerApi}.execute-api.${AWS::Region}.amazonaws.com/chat'
