@@ -2,9 +2,21 @@
 
 A browser-based 10-K research dashboard styled to match Isha's portfolio: Newsreader and DM Sans, cream, forest green, and lime. Includes a link back to the portfolio.
 
+## Project layout
+
+- `app/`, `components/`, `hooks/`, `lib/`: frontend and browser-side filing tools.
+- `backend/analyzer/`: Python SEC analyzer Lambda and local analyzer server.
+- `backend/chat/`: Node chat Lambda and shared OpenAI grounding logic.
+- `scripts/`: Lambda packaging helpers.
+- `outputs/`: generated Lambda upload zips.
+
 ## Run
 
 Requires Node 22.13 or newer. Run `npm ci`, then `npm run dev`. Production build: `npm run build`.
+
+For local filing analysis, run the analyzer server in a second terminal:
+
+`python3 backend/analyzer/local_analyzer_server.py`
 
 The browser calls the analyzer API at `VITE_ANALYZER_API_URL`, falling back to `NEXT_PUBLIC_ANALYZER_API_URL`. For local development, keep this in ignored `.env.local`:
 

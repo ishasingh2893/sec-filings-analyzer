@@ -1,4 +1,4 @@
-import { answerFilingQuestion } from '@/lib/chat-core';
+import { answerFilingQuestion } from '@/backend/chat/chat-core';
 
 export async function POST(request: Request) {
   let body: unknown;

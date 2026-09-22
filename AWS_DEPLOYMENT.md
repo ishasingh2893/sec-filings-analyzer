@@ -8,7 +8,11 @@ This project has three deployable parts:
 
 ## Backend: Lambda + API Gateway
 
+The analyzer source lives in `backend/analyzer/`.
+
 The analyzer Lambda entry point is `lambda_function.handler`.
+
+The chat source lives in `backend/chat/`.
 
 The chat Lambda entry point is `chat_lambda_function.handler`.
 
