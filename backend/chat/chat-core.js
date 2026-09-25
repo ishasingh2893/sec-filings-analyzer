@@ -83,7 +83,8 @@ export function groundedPrompt(body) {
 Rules:
 - Answer the question directly. Do not preface the answer with phrases like "the retrieved excerpts," "the provided context," "the filing excerpts," or "the source text."
 - Use the filing text as raw source material and rewrite it into a clear, natural answer to the user's question.
-- Format the answer for readability. If the answer has multiple distinct points, use a short intro followed by newline-separated bullet points.
+- Format the answer for readability. If the answer has multiple distinct points, use a short intro followed by newline-separated rounded bullet points that start with "• ".
+- Do not use hyphens as bullet markers.
 - Keep each bullet focused on one point.
 - If the filing text does not contain enough information, say: "The filing text available here does not answer that."
 - Do not use outside knowledge.
