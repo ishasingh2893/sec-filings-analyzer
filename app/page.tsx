@@ -23,10 +23,23 @@ type LambdaResponse={error?:string;company?:string;period?:string;method?:string
 type AnalyzePayload={url?:string;company?:string;year?:string};
 type ChatMessage={role:'user'|'assistant';content:string;results?:RetrievalResult[]};
 type ChatApiResponse={answer?:string;model?:string;error?:string};
+type PolishSectionsResponse={sections?:LambdaSections;model?:string;error?:string};
 const remoteMetricMap:Record<keyof LambdaMetrics,MetricKey>={revenue:'revenue',cost_of_revenue:'costOfRevenue',gross_profit:'grossProfit',operating_expenses:'operatingExpenses',operating_income:'operatingIncome',net_income:'income',diluted_eps:'dilutedEps',operating_cash_flow:'cashflow',capex:'capex',free_cash_flow:'freeCashFlow',capital_return:'capitalReturn',cash:'cash',total_assets:'assets',total_liabilities:'liabilities',long_term_debt:'debt',shareholders_equity:'equity',shares:'shares',employees:'employees'};
 const emptyMetrics=():Report['metrics']=>Object.fromEntries(Object.keys(labels).map(key=>[key,{value:null,source:''}])) as Report['metrics'];
 function applyRemoteMetrics(report:Report,data:LambdaResponse,sourceLabel:string){for(const [source,target] of Object.entries(remoteMetricMap) as [keyof LambdaMetrics,MetricKey][]){const value=data.metrics?.[source];if(typeof value==='number')report.metrics[target]={value,source:sourceLabel};}}
 function remoteExcerpts(data:LambdaResponse):Report['excerpts']{const excerpts:Report['excerpts']=[];if(data.sections?.business)excerpts.push({title:'Business overview',text:data.sections.business,source:'Item 1. Business'});if(data.sections?.products_services)excerpts.push({title:'Products & services',text:data.sections.products_services,source:'Item 1. Business'});if(data.sections?.risk_factors)excerpts.push({title:'Risk factors',text:data.sections.risk_factors,source:'Item 1A. Risk Factors'});return excerpts;}
+function mergePolishedSections(data:LambdaResponse,sections?:LambdaSections):LambdaResponse{
+ if(!sections)return data;
+ return {
+  ...data,
+  sections:{
+   ...data.sections,
+   business:sections.business||data.sections?.business,
+   products_services:sections.products_services||data.sections?.products_services,
+   risk_factors:sections.risk_factors||data.sections?.risk_factors,
+  },
+ };
+}
 function retrievalSections(data:LambdaResponse,excerpts:Report['excerpts']){
  const sections:{title:string;source:string;text:string}[]=[];
  if(data.sections?.document)sections.push({title:'Full filing text',source:'10-K filing',text:data.sections.document});
@@ -84,6 +97,17 @@ async function parseAnalyzerResponse(res:Response):Promise<LambdaResponse>{
   return {error:message||'Analyzer returned a non-JSON response.'};
  }
 }
+async function polishSections(data:LambdaResponse):Promise<LambdaResponse>{
+ if(!CHAT_API_URL||!data.sections)return data;
+ const hasNarrative=Boolean(data.sections.business||data.sections.products_services||data.sections.risk_factors);
+ if(!hasNarrative)return data;
+ try{
+  const res=await fetch(CHAT_API_URL,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'polish-sections',company:data.company,period:data.period,sections:{business:data.sections.business,products_services:data.sections.products_services,risk_factors:data.sections.risk_factors}})});
+  if(!res.ok)return data;
+  const polished=await res.json() as PolishSectionsResponse;
+  return mergePolishedSections(data,polished.sections);
+ }catch{return data;}
+}
 export default function Home(){
  const [report,setReport]=useState<Report|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[status,setStatus]=useState(''),[reviewed,setReviewed]=useState(false);
  const [low,setLow]=useState('15'),[high,setHigh]=useState('25'),[price,setPrice]=useState(''),[filingUrl,setFilingUrl]=useState(DEFAULT_FILING_URL);
@@ -96,7 +120,7 @@ export default function Home(){
  const [chatBusy,setChatBusy]=useState(false);
  const chatEndRef=useRef<HTMLDivElement|null>(null);
  useEffect(()=>{chatEndRef.current?.scrollIntoView({behavior:'smooth',block:'nearest'});},[chatMessages]);
- async function runAnalysis(payload:AnalyzePayload,filename:string){if(busy)return;setBusy(true);setError('');setStatus('Fetching SEC filing…');try{if(!ANALYZER_API_URL)throw Error('Analyzer API URL is not configured. Set VITE_ANALYZER_API_URL in your local or deployment environment.');const res=await fetch(ANALYZER_API_URL,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)});const data=await parseAnalyzerResponse(res);if(!res.ok)throw Error(data.error||`Analyzer request failed with status ${res.status}.`);if(data.error)throw Error(data.error);const excerpts=remoteExcerpts(data);const next:Report={company:data.company||'Company name not found',period:data.period||'',filename,method:'SEC HTML extraction',metrics:emptyMetrics(),notes:['Analysis returned from SEC filing extraction.'],excerpts};applyRemoteMetrics(next,data,'SEC filing · inline XBRL');const chunks=makeFilingChunks([...retrievalSections(data,excerpts),...metricSections(next)]);setReport(next);setFilingChunks(chunks);setChatMessages([]);setChatInput('');setReviewed(false);setActiveNarrative(0);setPrice('');setStatus(`Analysis ready. Indexed ${chunks.length.toLocaleString('en-US')} filing chunks for BM25 chat.`);}catch(e){setError(e instanceof Error?e.message:'Unable to analyze filing.');setStatus('');setFilingChunks([]);setChatMessages([]);}finally{setBusy(false);}}
+ async function runAnalysis(payload:AnalyzePayload,filename:string){if(busy)return;setBusy(true);setError('');setStatus('Fetching SEC filing…');try{if(!ANALYZER_API_URL)throw Error('Analyzer API URL is not configured. Set VITE_ANALYZER_API_URL in your local or deployment environment.');const res=await fetch(ANALYZER_API_URL,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)});const rawData=await parseAnalyzerResponse(res);if(!res.ok)throw Error(rawData.error||`Analyzer request failed with status ${res.status}.`);if(rawData.error)throw Error(rawData.error);setStatus('Polishing business narrative…');const data=await polishSections(rawData);const excerpts=remoteExcerpts(data);const next:Report={company:data.company||'Company name not found',period:data.period||'',filename,method:'SEC HTML extraction',metrics:emptyMetrics(),notes:['Analysis returned from SEC filing extraction.'],excerpts};applyRemoteMetrics(next,data,'SEC filing · inline XBRL');const chunks=makeFilingChunks([...retrievalSections(data,excerpts),...metricSections(next)]);setReport(next);setFilingChunks(chunks);setChatMessages([]);setChatInput('');setReviewed(false);setActiveNarrative(0);setPrice('');setStatus(`Analysis ready. Indexed ${chunks.length.toLocaleString('en-US')} filing chunks for BM25 chat.`);}catch(e){setError(e instanceof Error?e.message:'Unable to analyze filing.');setStatus('');setFilingChunks([]);setChatMessages([]);}finally{setBusy(false);}}
  async function analyzeCompany(){if(!companyQuery||!filingYear||busy)return;await runAnalysis({company:companyQuery,year:filingYear},`${companyQuery} · ${filingYear} 10-K`);}
  async function analyzeUrl(){if(!filingUrl||busy)return;await runAnalysis({url:filingUrl},filingUrl);}
  async function askFiling(e:FormEvent){e.preventDefault();const query=chatInput.trim();if(!query||!filingChunks.length||chatBusy)return;const results=retrieveGroundedChunks(query,filingChunks,5);setChatInput('');setChatBusy(true);setChatMessages(messages=>[...messages,{role:'user',content:query},{role:'assistant',content:results.length?'Thinking over the retrieved filing passages…':`No indexed filing passage matched "${query}". Try a filing-specific question about revenue, risks, products, debt, cash flow, or employees.`,results}]);if(!results.length){setChatBusy(false);return;}try{const res=await fetch(CHAT_API_URL,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({query,company:report?.company,period:report?.period,chunks:results})});const data=await res.json() as ChatApiResponse;const answer=res.ok&&data.answer?data.answer:data.error||`Chat request failed with status ${res.status}.`;setChatMessages(messages=>messages.map((message,index)=>index===messages.length-1&&message.role==='assistant'?{...message,content:answer}:message));}catch(error){setChatMessages(messages=>messages.map((message,index)=>index===messages.length-1&&message.role==='assistant'?{...message,content:error instanceof Error?error.message:'Unable to call the chat endpoint.'}:message));}finally{setChatBusy(false);}}

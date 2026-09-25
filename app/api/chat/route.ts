@@ -1,4 +1,4 @@
-import { answerFilingQuestion } from '@/backend/chat/chat-core';
+import { answerFilingQuestion, polishFilingSections } from '@/backend/chat/chat-core';
 
 export async function POST(request: Request) {
   let body: unknown;
@@ -8,6 +8,8 @@ export async function POST(request: Request) {
     return Response.json({ error: 'Invalid JSON request body.' }, { status: 400 });
   }
 
-  const result = await answerFilingQuestion(body);
+  const action = body && typeof body === 'object' && 'action' in body ? body.action : undefined;
+  const result =
+    action === 'polish-sections' ? await polishFilingSections(body) : await answerFilingQuestion(body);
   return Response.json(result.body, { status: result.status });
 }
