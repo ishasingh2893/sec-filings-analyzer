@@ -55,7 +55,7 @@ Rules:
 - Use only the supplied excerpt text. Do not add outside facts, estimates, or interpretation.
 - Preserve the meaning and material caveats.
 - Keep business and products_services to one concise paragraph each.
-- Keep risk_factors to 4 concise bullet sentences in one paragraph separated by newlines.
+- Keep risk_factors to 4 concise sentences. Do not include bullet markers or numbering.
 - Avoid citations, markdown headings, and promotional language.
 - Return only valid JSON with string keys: business, products_services, risk_factors.
 

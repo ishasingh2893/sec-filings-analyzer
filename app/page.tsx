@@ -74,7 +74,7 @@ function metricSections(report:Report){
   return [{title:'Financial facts',source:metric.source||'Extracted 10-K fact',text:`${labels[key]} was ${value}. ${metricSearchTerms[key]||labels[key].toLowerCase()}.`}];
  });
 }
-function sentences(text:string){return text.split(/(?<=[.!?])\s+/).map(s=>s.trim()).filter(Boolean);}
+function sentences(text:string){return text.split(/(?<=[.!?])\s+/).map(s=>s.trim().replace(/^[-•\d.)\s]+/,'')).filter(Boolean);}
 const dollarMetric=(key:MetricKey)=>key!=='shares'&&key!=='employees';
 const displayScale=(key:MetricKey,value:number|null)=>dollarMetric(key)&&value!==null&&Math.abs(value)>=1000?1000:1;
 const displayUnit=(key:MetricKey,value:number|null)=>key==='shares'?'millions':displayScale(key,value)===1000?'USD billions':'USD millions';
