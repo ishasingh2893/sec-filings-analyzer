@@ -1,7 +1,9 @@
 """Focused, rule-based SEC HTML filing extraction for Lambda."""
+from collections import Counter
 from datetime import datetime
 from difflib import SequenceMatcher
 import json
+import math
 import re
 from socket import timeout as SocketTimeout
 from urllib.error import HTTPError, URLError
@@ -61,6 +63,24 @@ ISSUER_MIRROR_TIMEOUT_SECONDS = 4
 COMPANION_FETCH_TIMEOUT_SECONDS = 4
 MAX_COMPANION_DOCUMENTS = 4
 SEC_COMPANY_TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
+SECTION_CHUNK_MAX_CHARS = 1200
+SECTION_CHUNK_OVERLAP_SENTENCES = 1
+SECTION_RETRIEVAL_LIMIT = 6
+PRODUCTS_SERVICES_AVOID_TERMS = {
+    "colleague",
+    "colleagues",
+    "employee",
+    "employees",
+    "workforce",
+    "people",
+    "wellness",
+    "compensation",
+}
+SECTION_QUERIES = {
+    "business": "business overview operations",
+    "products_services": "products services offerings",
+    "risk_factors": "risk factors material risks",
+}
 PREFERRED_FACT_LABELS = {
     "revenue": ("Total operating revenues", "Total revenues", "Total net sales", "Net sales", "Revenue"),
     "operating_expenses": ("Total operating expenses", "Total noninterest expenses", "Total costs and expenses"),
@@ -470,16 +490,156 @@ def extract_employee_count(text):
     return None
 
 
+def extract_item_window(text, start_pattern, end_pattern):
+    for start in re.finditer(start_pattern, text, re.I):
+        if not is_probable_item_heading(text, start):
+            continue
+        end_match = next_probable_item_heading(text, end_pattern, start.end())
+        if not end_match:
+            continue
+        section = text[start.end() : end_match.start()]
+        section = re.sub(r"\s+", " ", section).strip()
+        if len(section) > 1000:
+            return section
+    return ""
+
+
+def next_probable_item_heading(text, pattern, start_position):
+    for match in re.finditer(pattern, text[start_position:], re.I):
+        absolute_start = start_position + match.start()
+        absolute_end = start_position + match.end()
+        absolute_match = SimpleMatch(absolute_start, absolute_end)
+        if is_probable_item_heading(text, absolute_match):
+            return absolute_match
+    return None
+
+
+class SimpleMatch:
+    def __init__(self, start, end):
+        self._start = start
+        self._end = end
+
+    def start(self):
+        return self._start
+
+    def end(self):
+        return self._end
+
+
+def is_probable_item_heading(text, match):
+    before = text[max(0, match.start() - 90) : match.start()]
+    after = text[match.end() : match.end() + 260]
+    before_lower = before.lower()
+
+    if re.search(
+        r"\b(?:see|under|within|from|of|and|the|in|regarding|associated with|discussion of|information on)\s+(?:the\s+)?$",
+        before_lower,
+    ):
+        return False
+    if re.search(r"\b(?:section|sections|report|form 10-k)\s+(?:and\s+)?$", before_lower):
+        return False
+    if re.match(r"\s+\d+\s+(?:[A-Z][A-Za-z,& /-]{2,90}\s+\d+\s+){1,}", after):
+        return False
+    if len(re.findall(r"\bITEM\s+\d", after[:220], re.I)) >= 2:
+        return False
+    return True
+
+
+def retrieve_section_text(section_text, query, limit=SECTION_RETRIEVAL_LIMIT, include_lead=False, avoid_terms=None):
+    chunks = chunk_section_text(section_text)
+    if len(chunks) <= 1:
+        return section_text
+    ranked = rank_chunks_bm25(chunks, query, avoid_terms or set())
+    selected = [item for item in ranked[:limit] if item["score"] > 0]
+    if include_lead:
+        selected.append({"index": 0, "score": 0, "text": chunks[0]})
+    if not selected:
+        return section_text
+    selected_by_index = {item["index"]: item for item in selected}
+    selected = sorted(selected_by_index.values(), key=lambda item: item["index"])
+    return " ".join(item["text"] for item in selected)
+
+
+def chunk_section_text(text, max_chars=SECTION_CHUNK_MAX_CHARS):
+    sentences = [sentence.strip() for sentence in re.split(r"(?<=[.!?])\s+", text) if sentence.strip()]
+    chunks = []
+    current = []
+    current_length = 0
+    for sentence in sentences:
+        sentence_length = len(sentence)
+        if current and current_length + sentence_length + 1 > max_chars:
+            chunks.append(" ".join(current))
+            current = current[-SECTION_CHUNK_OVERLAP_SENTENCES:] if SECTION_CHUNK_OVERLAP_SENTENCES else []
+            current_length = sum(len(item) + 1 for item in current)
+        current.append(sentence)
+        current_length += sentence_length + 1
+    if current:
+        chunks.append(" ".join(current))
+    return chunks
+
+
+def rank_chunks_bm25(chunks, query, avoid_terms=None):
+    avoid_terms = avoid_terms or set()
+    tokenized_chunks = [tokenize_search_text(chunk) for chunk in chunks]
+    query_terms = tokenize_search_text(query)
+    if not query_terms:
+        return []
+    document_count = len(tokenized_chunks)
+    document_frequency = Counter()
+    for tokens in tokenized_chunks:
+        document_frequency.update(set(tokens))
+    average_length = sum(len(tokens) for tokens in tokenized_chunks) / max(document_count, 1)
+    k1 = 1.2
+    b = 0.75
+    ranked = []
+    for index, tokens in enumerate(tokenized_chunks):
+        counts = Counter(tokens)
+        score = 0.0
+        length = len(tokens) or 1
+        for term in query_terms:
+            frequency = counts.get(term, 0)
+            if not frequency:
+                continue
+            idf = math.log(1 + (document_count - document_frequency[term] + 0.5) / (document_frequency[term] + 0.5))
+            denominator = frequency + k1 * (1 - b + b * length / max(average_length, 1))
+            score += idf * frequency * (k1 + 1) / denominator
+        if avoid_terms & set(tokens):
+            score *= 0.2
+        ranked.append({"index": index, "score": score, "text": chunks[index]})
+    return sorted(ranked, key=lambda item: (item["score"], -item["index"]), reverse=True)
+
+
+def tokenize_search_text(text):
+    return re.findall(r"[a-z][a-z0-9-]{2,}", text.lower())
+
+
 def extract_sections(text, url=""):
     sections = {"document": text}
-    business_section = extract_business_section(text)
-    business = summarize_business_section(business_section)
+    business_section = extract_item_window(
+        text,
+        r"\bItem\s+1[.\s:–-]+Business\b",
+        r"\bItem\s+1A[.\s:–-]+Risk Factors\b",
+    ) or extract_business_section(text)
+    risk_section = extract_item_window(
+        text,
+        r"\bItem\s+1A[.\s:–-]+Risk Factors\b",
+        r"\bItem\s+(?:1B|1C|2)[.\s:–-]+",
+    ) or extract_risk_factors_section(text)
+    business = summarize_business_section(
+        retrieve_section_text(business_section, SECTION_QUERIES["business"], include_lead=True)
+    )
     if business:
         sections["business"] = business
-    products_services = summarize_products_services_section(business_section)
+    products_services = summarize_products_services_section(
+        retrieve_section_text(
+            business_section,
+            SECTION_QUERIES["products_services"],
+            avoid_terms=PRODUCTS_SERVICES_AVOID_TERMS,
+        )
+    )
     if products_services:
         sections["products_services"] = products_services
-    risk_factors = summarize_risk_factors_section(extract_risk_factors_section(text))
+    risk_factors = summarize_risk_factors_section(risk_section)
     if risk_factors:
         sections["risk_factors"] = risk_factors
     if "business" not in sections or "products_services" not in sections or "risk_factors" not in sections:

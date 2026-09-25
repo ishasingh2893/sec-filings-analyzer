@@ -83,10 +83,12 @@ export function groundedPrompt(body) {
 Rules:
 - Answer the question directly. Do not preface the answer with phrases like "the retrieved excerpts," "the provided context," "the filing excerpts," or "the source text."
 - Use the filing text as raw source material and rewrite it into a clear, natural answer to the user's question.
+- Format the answer for readability. If the answer has multiple distinct points, use a short intro followed by newline-separated bullet points.
+- Keep each bullet focused on one point.
 - If the filing text does not contain enough information, say: "The filing text available here does not answer that."
 - Do not use outside knowledge.
 - Be concise and specific.
-- Cite sources inline as [1], [2], etc. using the excerpt numbers.
+- Do not include citations, bracketed source numbers, markdown links, or footnotes in the answer.
 - This is research assistance, not investment advice.
 
 Company: ${body.company || 'Unknown company'}

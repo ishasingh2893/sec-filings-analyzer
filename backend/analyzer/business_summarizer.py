@@ -45,6 +45,7 @@ BOILERPLATE = (
 )
 
 RISK_BOILERPLATE = (
+    "this section describes",
     "following summarizes",
     "accurately predict",
     "statements in this section",
@@ -232,6 +233,10 @@ def _is_useful_sentence(sentence, boilerplate):
     if not re.match(r"[A-Z0-9\"'“‘(]", sentence):
         return False
     lower = sentence.lower()
+    if re.search(r"\b(?:for (?:a )?(?:further|additional)?\s*(?:discussion|information)|see)\b.*\bitem\s+\d", lower):
+        return False
+    if len(re.findall(r"\bitem\s+\d", lower)) >= 2:
+        return False
     return not any(phrase in lower for phrase in boilerplate)
 
 
