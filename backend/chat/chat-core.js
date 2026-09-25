@@ -78,10 +78,12 @@ export function groundedPrompt(body) {
     text: String(chunk.text || '').slice(0, 1400),
   }));
 
-  return `You are a SEC 10-K research assistant. Answer the user's question using only the filing excerpts below.
+  return `You are a SEC 10-K research assistant. Answer the user's question in natural language using only the filing text below.
 
 Rules:
-- If the excerpts do not contain enough information, say that the retrieved filing context is insufficient.
+- Answer the question directly. Do not preface the answer with phrases like "the retrieved excerpts," "the provided context," "the filing excerpts," or "the source text."
+- Use the filing text as raw source material and rewrite it into a clear, natural answer to the user's question.
+- If the filing text does not contain enough information, say: "The filing text available here does not answer that."
 - Do not use outside knowledge.
 - Be concise and specific.
 - Cite sources inline as [1], [2], etc. using the excerpt numbers.
