@@ -28,7 +28,7 @@ type RiskFactorsResponse={risk_factors?:string;model?:string;error?:string};
 const remoteMetricMap:Record<keyof LambdaMetrics,MetricKey>={revenue:'revenue',cost_of_revenue:'costOfRevenue',gross_profit:'grossProfit',operating_expenses:'operatingExpenses',operating_income:'operatingIncome',net_income:'income',diluted_eps:'dilutedEps',operating_cash_flow:'cashflow',capex:'capex',free_cash_flow:'freeCashFlow',capital_return:'capitalReturn',cash:'cash',total_assets:'assets',total_liabilities:'liabilities',long_term_debt:'debt',shareholders_equity:'equity',shares:'shares',employees:'employees'};
 const emptyMetrics=():Report['metrics']=>Object.fromEntries(Object.keys(labels).map(key=>[key,{value:null,source:''}])) as Report['metrics'];
 function applyRemoteMetrics(report:Report,data:LambdaResponse,sourceLabel:string){for(const [source,target] of Object.entries(remoteMetricMap) as [keyof LambdaMetrics,MetricKey][]){const value=data.metrics?.[source];if(typeof value==='number')report.metrics[target]={value,source:sourceLabel};}}
-function remoteExcerpts(data:LambdaResponse):Report['excerpts']{const excerpts:Report['excerpts']=[];if(data.sections?.business)excerpts.push({title:'Business overview',text:normalizeChatAnswer(data.sections.business),source:'Item 1. Business'});if(data.sections?.products_services)excerpts.push({title:'Products & services',text:normalizeChatAnswer(data.sections.products_services),source:'Item 1. Business'});if(data.sections?.risk_factors)excerpts.push({title:'Risk factors',text:data.sections.risk_factors,source:'Item 1A. Risk Factors'});return excerpts;}
+function remoteExcerpts(data:LambdaResponse):Report['excerpts']{const excerpts:Report['excerpts']=[];if(data.sections?.business)excerpts.push({title:'Business overview',text:normalizeNarrative(data.sections.business),source:'Item 1. Business'});if(data.sections?.products_services)excerpts.push({title:'Products & services',text:normalizeNarrative(data.sections.products_services),source:'Item 1. Business'});if(data.sections?.risk_factors)excerpts.push({title:'Risk factors',text:data.sections.risk_factors,source:'Item 1A. Risk Factors'});return excerpts;}
 function mergePolishedSections(data:LambdaResponse,sections?:LambdaSections):LambdaResponse{
  if(!sections)return data;
  return {
@@ -98,6 +98,7 @@ function normalizeChatAnswer(answer:string){
  const withLineBreaks=answer.replace(/\r\n?/g,'\n').replace(/\s*•\s*/g,'\n• ');
  return withLineBreaks.replace(/(^|\n)\s*[-*]\s+/g,'$1• ').replace(/\n{3,}/g,'\n\n').trim();
 }
+function normalizeNarrative(text:string){return text.replace(/\r\n?/g,' ').replace(/\s*•\s*/g,' ').replace(/\s+/g,' ').trim();}
 function ThinkingDots(){
  const [step,setStep]=useState(0);
  const frames=['...','..','.'];
