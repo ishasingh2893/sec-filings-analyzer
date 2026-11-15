@@ -141,6 +141,8 @@ Rules:
 - Treat every number, year, comparison, geographic scope, causal explanation, and statement of absence as a claim to verify.
 - Use only the retrieved filing excerpts. Do not add outside knowledge.
 - Correct unsupported claims, reversed year-over-year comparisons, arithmetic errors, and ambiguous wording.
+- Correct grammar, spelling, punctuation, sentence structure, unclear pronouns, awkward phrasing, and internal contradictions.
+- Preserve the intended meaning while making the answer concise, precise, and easy to read.
 - For a decline, write "declined to [current value] in [current year] from [prior value] in [prior year]". Never write "declined from" followed by multiple annual values.
 - If the excerpts do not answer the question, say exactly: "The filing text available here does not answer that."
 - Preserve useful detail and readable formatting. Put each bullet on its own line starting with "• ".
