@@ -70,6 +70,26 @@ products_services: ${sections.products_services || 'Not provided.'}
 risk_factors: ${sections.risk_factors || 'Not provided.'}`;
 }
 
+function riskFactorsPrompt(body) {
+  const riskFactors = cleanSectionText(body?.risk_factors).slice(0, 6000);
+
+  return `You are a SEC 10-K risk-factor analyst. Extract the most material distinct risks from the supplied filing excerpt.
+
+Rules:
+- Use only the supplied excerpt. Do not add outside facts, predictions, or investment advice.
+- Return 4 to 6 distinct risks when the excerpt supports that many.
+- Each risk must have a concise title and exactly two complete sentences explaining it.
+- Preserve important qualifiers, uncertainty, and potential consequences from the filing.
+- Do not combine unrelated risks.
+- Return only valid JSON in this exact shape: {"risk_factors":[{"title":"...","explanation":"Sentence one. Sentence two."}]}
+
+Company: ${body.company || 'Unknown company'}
+Filing period: ${body.period || 'Unknown period'}
+
+Extracted risk-factor text:
+${riskFactors || 'Not provided.'}`;
+}
+
 export function groundedPrompt(body) {
   const chunks = (body.chunks || []).slice(0, 6).map((chunk, index) => ({
     id: index + 1,
@@ -84,6 +104,7 @@ Rules:
 - Answer the question directly. Do not preface the answer with phrases like "the retrieved excerpts," "the provided context," "the filing excerpts," or "the source text."
 - Use the filing text as raw source material and rewrite it into a clear, natural answer to the user's question.
 - Format the answer for readability. If the answer has multiple distinct points, use a short intro followed by newline-separated rounded bullet points that start with "• ".
+- Put every bullet on its own line; never place multiple bullet points on the same line.
 - Do not use hyphens as bullet markers.
 - Keep each bullet focused on one point.
 - If the filing text does not contain enough information, say: "The filing text available here does not answer that."
@@ -117,6 +138,25 @@ export function validateChatRequest(body) {
   if (!query) return { error: 'Query is required.' };
   if (!chunks.length) return { error: 'At least one retrieved filing chunk is required.' };
   return { query, chunks };
+}
+
+export function validateRiskFactorsRequest(body) {
+  const riskFactors = cleanSectionText(body?.risk_factors);
+  if (!riskFactors) return { error: 'Risk-factor filing text is required.' };
+  return { riskFactors };
+}
+
+function formatRiskFactors(value) {
+  if (!Array.isArray(value)) return '';
+  return value
+    .filter((item) => item && typeof item === 'object')
+    .map((item) => {
+      const title = cleanSectionText(item.title);
+      const explanation = cleanSectionText(item.explanation);
+      return title && explanation ? `• ${title}: ${explanation}` : '';
+    })
+    .filter(Boolean)
+    .join('\n');
 }
 
 export async function polishFilingSections(body, env = process.env) {
@@ -168,6 +208,45 @@ export async function polishFilingSections(body, env = process.env) {
       model,
     },
   };
+}
+
+export async function generateRiskFactors(body, env = process.env) {
+  const apiKey = env.OPENAI_API_KEY;
+  if (!apiKey) {
+    return { status: 503, body: { error: 'OPENAI_API_KEY is not configured on the server.' } };
+  }
+
+  const validation = validateRiskFactorsRequest(body);
+  if (validation.error) return { status: 400, body: { error: validation.error } };
+
+  const model = env.OPENAI_MODEL || 'gpt-5.6-luna';
+  const response = await fetch('https://api.openai.com/v1/responses', {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${apiKey}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      model,
+      input: riskFactorsPrompt({ ...body, risk_factors: validation.riskFactors }),
+      max_output_tokens: 900,
+    }),
+  });
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const message =
+      data && typeof data === 'object' && typeof data.error?.message === 'string'
+        ? data.error.message
+        : `OpenAI request failed with status ${response.status}.`;
+    return { status: response.status, body: { error: message } };
+  }
+
+  const parsed = parseJsonObject(outputText(data));
+  const riskFactors = formatRiskFactors(parsed?.risk_factors);
+  if (!riskFactors) return { status: 502, body: { error: 'The risk-factor agent returned invalid JSON.' } };
+
+  return { status: 200, body: { risk_factors: riskFactors, model } };
 }
 
 export async function answerFilingQuestion(body, env = process.env) {

@@ -1,4 +1,4 @@
-import { answerFilingQuestion, polishFilingSections } from '@/backend/chat/chat-core';
+import { answerFilingQuestion, generateRiskFactors, polishFilingSections } from '@/backend/chat/chat-core';
 
 export async function POST(request: Request) {
   let body: unknown;
@@ -10,6 +10,10 @@ export async function POST(request: Request) {
 
   const action = body && typeof body === 'object' && 'action' in body ? body.action : undefined;
   const result =
-    action === 'polish-sections' ? await polishFilingSections(body) : await answerFilingQuestion(body);
+    action === 'polish-sections'
+      ? await polishFilingSections(body)
+      : action === 'risk-factors'
+        ? await generateRiskFactors(body)
+        : await answerFilingQuestion(body);
   return Response.json(result.body, { status: result.status });
 }

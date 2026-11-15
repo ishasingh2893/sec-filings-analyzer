@@ -1,4 +1,4 @@
-import { answerFilingQuestion, polishFilingSections } from './chat-core.js';
+import { answerFilingQuestion, generateRiskFactors, polishFilingSections } from './chat-core.js';
 
 const corsHeaders = {
   'access-control-allow-origin': '*',
@@ -33,6 +33,8 @@ export async function handler(event) {
     const result =
       body && typeof body === 'object' && body.action === 'polish-sections'
         ? await polishFilingSections(body)
+        : body && typeof body === 'object' && body.action === 'risk-factors'
+          ? await generateRiskFactors(body)
         : await answerFilingQuestion(body);
     return jsonResponse(result.status, result.body);
   } catch (error) {
