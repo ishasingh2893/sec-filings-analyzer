@@ -1,0 +1,60 @@
+name: Deploy frontend to AWS
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy-frontend:
+    runs-on: ubuntu-latest
+    env:
+      AWS_REGION: us-east-2
+      FRONTEND_STACK_NAME: sec-filings-analyzer-frontend
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build static frontend
+        run: npm run build
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::226237140911:role/GitHubActionsSecFilingsSamDeployRole
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Ensure frontend infrastructure exists
+        run: |
+          aws cloudformation deploy \
+            --template-file infrastructure/frontend.yaml \
+            --stack-name "$FRONTEND_STACK_NAME" \
+            --region "$AWS_REGION" \
+            --capabilities CAPABILITY_IAM \
+            --no-fail-on-empty-changeset
+
+      - name: Read frontend infrastructure outputs
+        id: outputs
+        run: |
+          echo "bucket=$(aws cloudformation describe-stacks --stack-name \"$FRONTEND_STACK_NAME\" --region \"$AWS_REGION\" --query 'Stacks[0].Outputs[?OutputKey==`FrontendBucketName`].OutputValue' --output text)" >> "$GITHUB_OUTPUT"
+          echo "distribution=$(aws cloudformation describe-stacks --stack-name \"$FRONTEND_STACK_NAME\" --region \"$AWS_REGION\" --query 'Stacks[0].Outputs[?OutputKey==`FrontendDistributionId`].OutputValue' --output text)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload frontend assets
+        run: aws s3 sync dist/client "s3://${{ steps.outputs.outputs.bucket }}" --delete --region "$AWS_REGION"
+
+      - name: Invalidate CloudFront cache
+        run: aws cloudfront create-invalidation --distribution-id "${{ steps.outputs.outputs.distribution }}" --paths '/*'
