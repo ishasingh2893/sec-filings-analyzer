@@ -181,6 +181,104 @@ async function adversarialReview(body, draft, env, model) {
   return typeof parsed?.answer === 'string' && parsed.answer.trim() ? parsed.answer.trim() : draft;
 }
 
+function adversarialSectionsPrompt(body, draft) {
+  return `You are the final adversarial editor for SEC 10-K filing summaries.
+
+Review every generated section against its corresponding extracted filing text.
+
+Rules:
+- Use only the supplied extracted text; do not add outside facts or interpretation.
+- Correct factual, logical, numerical, year-over-year, scope, grammar, spelling, punctuation, and clarity errors.
+- Preserve material qualifiers and caveats.
+- Keep business and products_services as concise prose paragraphs.
+- Keep risk_factors as concise prose without bullets or numbering.
+- Return only valid JSON with string keys: business, products_services, risk_factors.
+
+Company: ${body.company || 'Unknown company'}
+Filing period: ${body.period || 'Unknown period'}
+
+Extracted source sections:
+business: ${cleanSectionText(body.sections?.business) || 'Not provided.'}
+
+products_services: ${cleanSectionText(body.sections?.products_services) || 'Not provided.'}
+
+risk_factors: ${cleanSectionText(body.sections?.risk_factors) || 'Not provided.'}
+
+Generated sections to review:
+business: ${draft.business || 'Not provided.'}
+
+products_services: ${draft.products_services || 'Not provided.'}
+
+risk_factors: ${draft.risk_factors || 'Not provided.'}`;
+}
+
+async function adversarialReviewSections(body, draft, env, model) {
+  const response = await fetch('https://api.openai.com/v1/responses', {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${env.OPENAI_API_KEY}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      model,
+      input: adversarialSectionsPrompt(body, draft),
+      max_output_tokens: 850,
+    }),
+  });
+  if (!response.ok) return draft;
+  const data = await response.json().catch(() => ({}));
+  const parsed = parseJsonObject(outputText(data));
+  if (!parsed) return draft;
+  return {
+    business: cleanSectionText(parsed.business) || draft.business,
+    products_services: cleanSectionText(parsed.products_services) || draft.products_services,
+    risk_factors: cleanSectionText(parsed.risk_factors) || draft.risk_factors,
+  };
+}
+
+function adversarialRiskFactorsPrompt(body, draft) {
+  return `You are the final adversarial editor for generated SEC 10-K risk factors.
+
+Check the generated risk factors against the extracted filing text.
+
+Rules:
+- Use only the extracted filing text. Do not add outside facts or predictions.
+- Correct factual, logical, numerical, grammar, spelling, punctuation, and clarity errors.
+- Preserve the filing's qualifiers and uncertainty.
+- Keep each risk as one bullet with exactly two complete sentences.
+- Return only valid JSON in this exact shape: {"risk_factors":"• Risk title: Sentence one. Sentence two."}.
+
+Company: ${body.company || 'Unknown company'}
+Filing period: ${body.period || 'Unknown period'}
+
+Extracted risk-factor text:
+${cleanSectionText(body.risk_factors) || 'Not provided.'}
+
+Generated risk factors:
+${draft}`;
+}
+
+async function adversarialReviewRiskFactors(body, draft, env, model) {
+  const response = await fetch('https://api.openai.com/v1/responses', {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${env.OPENAI_API_KEY}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      model,
+      input: adversarialRiskFactorsPrompt(body, draft),
+      max_output_tokens: 900,
+    }),
+  });
+  if (!response.ok) return draft;
+  const data = await response.json().catch(() => ({}));
+  const parsed = parseJsonObject(outputText(data));
+  return typeof parsed?.risk_factors === 'string' && parsed.risk_factors.trim()
+    ? parsed.risk_factors.trim()
+    : draft;
+}
+
 export function validatePolishSectionsRequest(body) {
   const sections = body?.sections && typeof body.sections === 'object' ? body.sections : {};
   const hasSection = ['business', 'products_services', 'risk_factors'].some((key) =>
@@ -252,16 +350,24 @@ export async function polishFilingSections(body, env = process.env) {
   const parsed = parseJsonObject(outputText(data));
   if (!parsed) return { status: 502, body: { error: 'The model returned invalid JSON.' } };
 
+  const draftSections = {
+    business: cleanSectionText(parsed.business) || cleanSectionText(validation.sections.business),
+    products_services:
+      cleanSectionText(parsed.products_services) || cleanSectionText(validation.sections.products_services),
+    risk_factors:
+      cleanSectionText(parsed.risk_factors) || cleanSectionText(validation.sections.risk_factors),
+  };
+  const reviewedSections = await adversarialReviewSections(body, draftSections, env, model).catch(
+    () => draftSections
+  );
+
   return {
     status: 200,
     body: {
       sections: {
-        business: cleanSectionText(parsed.business) || cleanSectionText(validation.sections.business),
-        products_services:
-          cleanSectionText(parsed.products_services) ||
-          cleanSectionText(validation.sections.products_services),
-        risk_factors:
-          cleanSectionText(parsed.risk_factors) || cleanSectionText(validation.sections.risk_factors),
+        business: reviewedSections.business,
+        products_services: reviewedSections.products_services,
+        risk_factors: reviewedSections.risk_factors,
       },
       model,
     },
@@ -303,8 +409,14 @@ export async function generateRiskFactors(body, env = process.env) {
   const parsed = parseJsonObject(outputText(data));
   const riskFactors = formatRiskFactors(parsed?.risk_factors);
   if (!riskFactors) return { status: 502, body: { error: 'The risk-factor agent returned invalid JSON.' } };
+  const reviewedRiskFactors = await adversarialReviewRiskFactors(
+    { ...body, risk_factors: validation.riskFactors },
+    riskFactors,
+    env,
+    model
+  ).catch(() => riskFactors);
 
-  return { status: 200, body: { risk_factors: riskFactors, model } };
+  return { status: 200, body: { risk_factors: reviewedRiskFactors, model } };
 }
 
 export async function answerFilingQuestion(body, env = process.env) {
