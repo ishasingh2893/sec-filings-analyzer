@@ -54,6 +54,7 @@ function polishedSectionsPrompt(body) {
 Rules:
 - Use only the supplied excerpt text. Do not add outside facts, estimates, or interpretation.
 - Preserve the meaning and material caveats.
+- For year-over-year comparisons, identify the current-year and prior-year values clearly. Use phrasing such as "declined to [current-year amount] in [current year] from [prior-year amount] in [prior year]"; never write "declined from" followed by multiple annual values.
 - Keep business and products_services to one concise paragraph each.
 - Keep risk_factors to 4 concise sentences. Do not include bullet markers or numbering.
 - Avoid citations, markdown headings, and promotional language.
@@ -107,6 +108,7 @@ Rules:
 - Put every bullet on its own line; never place multiple bullet points on the same line.
 - Do not use hyphens as bullet markers.
 - Keep each bullet focused on one point.
+- For year-over-year comparisons, identify the current-year and prior-year values clearly. Use "declined to [current-year amount] from [prior-year amount]" or "increased to [current-year amount] from [prior-year amount]"; never attach multiple annual values directly to "declined from" or "increased from."
 - If the filing text does not contain enough information, say: "The filing text available here does not answer that."
 - Do not use outside knowledge.
 - Be concise and specific.
