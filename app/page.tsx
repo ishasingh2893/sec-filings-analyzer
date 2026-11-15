@@ -28,7 +28,7 @@ type RiskFactorsResponse={risk_factors?:string;model?:string;error?:string};
 const remoteMetricMap:Record<keyof LambdaMetrics,MetricKey>={revenue:'revenue',cost_of_revenue:'costOfRevenue',gross_profit:'grossProfit',operating_expenses:'operatingExpenses',operating_income:'operatingIncome',net_income:'income',diluted_eps:'dilutedEps',operating_cash_flow:'cashflow',capex:'capex',free_cash_flow:'freeCashFlow',capital_return:'capitalReturn',cash:'cash',total_assets:'assets',total_liabilities:'liabilities',long_term_debt:'debt',shareholders_equity:'equity',shares:'shares',employees:'employees'};
 const emptyMetrics=():Report['metrics']=>Object.fromEntries(Object.keys(labels).map(key=>[key,{value:null,source:''}])) as Report['metrics'];
 function applyRemoteMetrics(report:Report,data:LambdaResponse,sourceLabel:string){for(const [source,target] of Object.entries(remoteMetricMap) as [keyof LambdaMetrics,MetricKey][]){const value=data.metrics?.[source];if(typeof value==='number')report.metrics[target]={value,source:sourceLabel};}}
-function remoteExcerpts(data:LambdaResponse):Report['excerpts']{const excerpts:Report['excerpts']=[];if(data.sections?.business)excerpts.push({title:'Business overview',text:data.sections.business,source:'Item 1. Business'});if(data.sections?.products_services)excerpts.push({title:'Products & services',text:data.sections.products_services,source:'Item 1. Business'});if(data.sections?.risk_factors)excerpts.push({title:'Risk factors',text:data.sections.risk_factors,source:'Item 1A. Risk Factors'});return excerpts;}
+function remoteExcerpts(data:LambdaResponse):Report['excerpts']{const excerpts:Report['excerpts']=[];if(data.sections?.business)excerpts.push({title:'Business overview',text:normalizeChatAnswer(data.sections.business),source:'Item 1. Business'});if(data.sections?.products_services)excerpts.push({title:'Products & services',text:normalizeChatAnswer(data.sections.products_services),source:'Item 1. Business'});if(data.sections?.risk_factors)excerpts.push({title:'Risk factors',text:data.sections.risk_factors,source:'Item 1A. Risk Factors'});return excerpts;}
 function mergePolishedSections(data:LambdaResponse,sections?:LambdaSections):LambdaResponse{
  if(!sections)return data;
  return {
@@ -76,7 +76,7 @@ function metricSections(report:Report){
  });
 }
 function riskFactorItems(text:string){
- const lines=text.split(/\n+/).map(line=>line.trim().replace(/^[-*•\d.)\s]+/,'')).filter(Boolean);
+ const lines=normalizeChatAnswer(text).split(/\n+/).map(line=>line.trim().replace(/^[-*•\d.)\s]+/,'')).filter(Boolean);
  return lines.length>1?lines:sentences(text);
 }
 function sentences(text:string){return text.split(/(?<=[.!?])\s+/).map(s=>s.trim().replace(/^[-•\d.)\s]+/,'')).filter(Boolean);}
@@ -105,7 +105,10 @@ function ThinkingDots(){
  return <span className="typing-dots" aria-label="Thinking">{frames[step]}</span>;
 }
 function AssistantMessage({content}:{content:string}){
- const lines=content.split(/\n+/).map(line=>line.trim()).filter(Boolean);
+ return <FormattedText content={content}/>;
+}
+function FormattedText({content}:{content:string}){
+ const lines=normalizeChatAnswer(content).split(/\n+/).map(line=>line.trim()).filter(Boolean);
  const blocks:JSX.Element[]=[];
  const inline=(text:string)=>text.split(/(\*\*[^*]+\*\*)/g).map((part,index)=>part.startsWith('**')&&part.endsWith('**')?<strong key={index}>{part.slice(2,-2)}</strong>:part);
  let bullets:string[]=[];
