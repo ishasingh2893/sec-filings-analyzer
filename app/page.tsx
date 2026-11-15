@@ -95,8 +95,7 @@ function visibleFundamentalEntries(report:Report,entries:FundamentalEntry[]){ret
 function people(n:number|null){return n===null?'—':Math.round(n).toLocaleString('en-US');}
 const wait=(ms:number)=>new Promise(resolve=>setTimeout(resolve,ms));
 function normalizeChatAnswer(answer:string){
- const repairedComparisons=answer.replace(/\b(declined|decreased|fell)\s+from\s+(\$[\d,.]+\s+(?:billion|million|trillion))\s+in\s+(\d{4})\s+and\s+(\$[\d,.]+\s+(?:billion|million|trillion))\s+in\s+(\d{4})/gi,'$1 to $2 in $3 from $4 in $5');
- const withLineBreaks=repairedComparisons.replace(/\r\n?/g,'\n').replace(/\s*•\s*/g,'\n• ');
+ const withLineBreaks=answer.replace(/\r\n?/g,'\n').replace(/\s*•\s*/g,'\n• ');
  return withLineBreaks.replace(/(^|\n)\s*[-*]\s+/g,'$1• ').replace(/\n{3,}/g,'\n\n').trim();
 }
 function normalizeNarrative(text:string){return text.replace(/\r\n?/g,' ').replace(/\s*•\s*/g,' ').replace(/\s+/g,' ').trim();}

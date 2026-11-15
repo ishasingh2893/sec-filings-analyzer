@@ -125,6 +125,60 @@ Retrieved filing excerpts:
 ${chunks.map((chunk) => `[${chunk.id}] ${chunk.title} — ${chunk.source}\n${chunk.text}`).join('\n\n')}`;
 }
 
+function adversarialReviewPrompt(body, draft) {
+  const chunks = (body.chunks || []).slice(0, 6).map((chunk, index) => ({
+    id: index + 1,
+    title: chunk.title,
+    source: chunk.source,
+    text: String(chunk.text || '').slice(0, 1400),
+  }));
+
+  return `You are an adversarial fact-checking editor for a SEC 10-K research assistant.
+
+Review the draft answer against the retrieved filing excerpts before it reaches the user.
+
+Rules:
+- Treat every number, year, comparison, geographic scope, causal explanation, and statement of absence as a claim to verify.
+- Use only the retrieved filing excerpts. Do not add outside knowledge.
+- Correct unsupported claims, reversed year-over-year comparisons, arithmetic errors, and ambiguous wording.
+- For a decline, write "declined to [current value] in [current year] from [prior value] in [prior year]". Never write "declined from" followed by multiple annual values.
+- If the excerpts do not answer the question, say exactly: "The filing text available here does not answer that."
+- Preserve useful detail and readable formatting. Put each bullet on its own line starting with "• ".
+- Return only valid JSON in this exact shape: {"answer":" corrected answer ","issues":["brief issue found"]}.
+
+Company: ${body.company || 'Unknown company'}
+Filing period: ${body.period || 'Unknown period'}
+
+User question:
+${body.query}
+
+Draft answer:
+${draft}
+
+Retrieved filing excerpts:
+${chunks.map((chunk) => `[${chunk.id}] ${chunk.title} — ${chunk.source}\n${chunk.text}`).join('\n\n')}`;
+}
+
+async function adversarialReview(body, draft, env, model) {
+  const response = await fetch('https://api.openai.com/v1/responses', {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${env.OPENAI_API_KEY}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      model,
+      input: adversarialReviewPrompt(body, draft),
+      max_output_tokens: 700,
+    }),
+  });
+
+  if (!response.ok) return draft;
+  const data = await response.json().catch(() => ({}));
+  const parsed = parseJsonObject(outputText(data));
+  return typeof parsed?.answer === 'string' && parsed.answer.trim() ? parsed.answer.trim() : draft;
+}
+
 export function validatePolishSectionsRequest(body) {
   const sections = body?.sections && typeof body.sections === 'object' ? body.sections : {};
   const hasSection = ['business', 'products_services', 'risk_factors'].some((key) =>
@@ -283,10 +337,18 @@ export async function answerFilingQuestion(body, env = process.env) {
     return { status: response.status, body: { error: message } };
   }
 
+  const draft = outputText(data) || 'The model returned an empty response.';
+  const answer = await adversarialReview(
+    { ...body, query: validation.query, chunks: validation.chunks },
+    draft,
+    env,
+    model
+  ).catch(() => draft);
+
   return {
     status: 200,
     body: {
-      answer: outputText(data) || 'The model returned an empty response.',
+      answer,
       model,
     },
   };
